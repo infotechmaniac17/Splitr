@@ -17,9 +17,12 @@ from app.api.schemas import (
     GroupMemberResponse,
     GroupResponse,
     PairwiseBalance,
+    SimplifiedDebtsResponse,
+    SuggestedTransaction,
 )
 from app.domain.ledger import compute_group_balances
 from app.domain.models import Group, GroupMember, User
+from app.domain.settlement_simplification import simplify_group_debts
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -155,3 +158,58 @@ async def get_group_balances(
         for d, c, a in raw
     ]
     return GroupBalancesResponse(group_id=group_id, balances=balances)
+
+
+@router.get(
+    "/{group_id}/simplified-debts",
+    response_model=SimplifiedDebtsResponse,
+)
+async def get_simplified_debts(
+    group_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SimplifiedDebtsResponse:
+    """
+    Suggested (not recorded) settlement transactions for this group.
+
+    If `group.simplify_debts` is True: runs greedy min-cash-flow over the
+    group's pairwise balances and returns the minimal transaction set
+    (<= n-1 entries) that would zero out every member's net balance --
+    see `app.domain.settlement_simplification.simplify_group_debts`.
+
+    If `group.simplify_debts` is False: the group has opted out of debt
+    simplification (members want to see/settle exactly who-owes-whom from
+    the actual expenses, not a netted proxy). In that case this endpoint
+    returns `simplified=False` and `transactions` is simply the raw
+    pairwise balances (same response shape, one entry per non-cancelling
+    debtor/creditor pair) -- i.e. this endpoint never silently applies
+    simplification the group has disabled; the response tells the caller
+    which mode was used.
+
+    This is read-only: it never posts to the ledger. Recording an actual
+    payment still requires calling POST /settlements.
+    """
+    group = await db.get(Group, group_id)
+    if group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+    await _assert_active_member(db, group_id, current_user.id)
+
+    raw = await compute_group_balances(db, group_id)
+
+    if not group.simplify_debts:
+        transactions = [
+            SuggestedTransaction(payer_id=d, payee_id=c, amount_minor=a)
+            for d, c, a in raw
+        ]
+        return SimplifiedDebtsResponse(
+            group_id=group_id, simplified=False, transactions=transactions
+        )
+
+    simplified = simplify_group_debts(raw)
+    transactions = [
+        SuggestedTransaction(payer_id=payer, payee_id=payee, amount_minor=amount)
+        for payer, payee, amount in simplified
+    ]
+    return SimplifiedDebtsResponse(
+        group_id=group_id, simplified=True, transactions=transactions
+    )

@@ -50,9 +50,14 @@ _EXPENSE_READ_RE = re.compile(
     r"^/api/v1/expenses/([0-9a-fA-F-]{36})(?:/(?:pdf|raw-extraction|shares))?$"
 )
 _GROUP_READ_RE = re.compile(
-    r"^/api/v1/groups/([0-9a-fA-F-]{36})(?:/balances)?$"
+    r"^/api/v1/groups/([0-9a-fA-F-]{36})(?:/balances|/simplified-debts)?$"
 )
 _USER_BALANCE_RE = re.compile(r"^/api/v1/users/([0-9a-fA-F-]{36})/balance$")
+# GET /users/{id} (profile) -- gained a self-or-shared-group auth gate (PII
+# leak fix). The pre-auth suites only ever fetch a user's own just-created
+# profile this way, so auto-auth "as themself" (self case always returns the
+# full profile, matching what these tests assert).
+_USER_PROFILE_RE = re.compile(r"^/api/v1/users/([0-9a-fA-F-]{36})$")
 
 
 class _AutoAuthRegistry:
@@ -100,6 +105,9 @@ class _AutoAuthRegistry:
             m5 = _USER_BALANCE_RE.match(path)
             if m5:
                 return m5.group(1)
+            m6 = _USER_PROFILE_RE.match(path)
+            if m6:
+                return m6.group(1)
         return None
 
     def observe(self, method: str, path: str, resp: Response) -> None:

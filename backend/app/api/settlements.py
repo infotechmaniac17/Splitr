@@ -95,15 +95,17 @@ async def get_user_balance(
     only the user themself may view it (no "shared group" carve-out: being
     in one group together shouldn't expose someone's balance in every other
     group they're in).
+
+    Non-self callers get a plain 404 regardless of whether user_id exists --
+    never 403 -- so that "not found" and "not yours" are indistinguishable
+    and a stranger cannot enumerate valid user UUIDs by observing 403 vs 404.
     """
+    if user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    if user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You may only view your own balance",
-        )
 
     net = await compute_user_net_balance(db, user_id)
     return UserBalanceResponse(user_id=user_id, net_balance_minor=net)

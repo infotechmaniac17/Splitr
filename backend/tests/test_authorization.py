@@ -265,11 +265,57 @@ async def test_group_balances_allows_member(client: AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Simplified debts -- same membership gate as balances (M6)
+# ---------------------------------------------------------------------------
+
+
+async def test_simplified_debts_rejects_non_member(client: AsyncClient) -> None:
+    alice = await _register(client, "Alice")
+    mallory = await _register(client, "Mallory")
+    group, _ = await _make_group_and_expense(client, alice)
+
+    resp = await client.get(
+        f"{API}/groups/{group['id']}/simplified-debts",
+        headers=_auth_headers(mallory["access_token"]),
+    )
+    assert resp.status_code == 403
+
+
+async def test_simplified_debts_allows_member(client: AsyncClient) -> None:
+    alice = await _register(client, "Alice")
+    group, _ = await _make_group_and_expense(client, alice)
+
+    resp = await client.get(
+        f"{API}/groups/{group['id']}/simplified-debts",
+        headers=_auth_headers(alice["access_token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["group_id"] == group["id"]
+    assert body["simplified"] is True
+    assert body["transactions"] == []
+
+
+async def test_simplified_debts_missing_group_404(client: AsyncClient) -> None:
+    alice = await _register(client, "Alice")
+    resp = await client.get(
+        f"{API}/groups/{uuid.uuid4()}/simplified-debts",
+        headers=_auth_headers(alice["access_token"]),
+    )
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # User balance -- self only (cross-group financial summary)
 # ---------------------------------------------------------------------------
 
 
 async def test_user_balance_rejects_other_user(client: AsyncClient) -> None:
+    """
+    Non-self callers get 404, never 403 -- see the UUID-enumeration
+    indistinguishability tests below for the actual property being
+    protected (fake vs. real-but-unauthorized UUID must be identical).
+    """
     alice = await _register(client, "Alice")
     mallory = await _register(client, "Mallory")
 
@@ -277,7 +323,7 @@ async def test_user_balance_rejects_other_user(client: AsyncClient) -> None:
         f"{API}/users/{alice['user']['id']}/balance",
         headers=_auth_headers(mallory["access_token"]),
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 async def test_user_balance_rejects_shared_group_member_who_isnt_self(
@@ -307,7 +353,7 @@ async def test_user_balance_rejects_shared_group_member_who_isnt_self(
         f"{API}/users/{alice['user']['id']}/balance",
         headers=_auth_headers(bob["access_token"]),
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 async def test_user_balance_allows_self(client: AsyncClient) -> None:
@@ -328,3 +374,134 @@ async def test_user_balance_requires_authentication(client: AsyncClient) -> None
         headers={"Authorization": ""},
     )
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# User profile (GET /users/{user_id}) -- PII leak: full profile (name, email,
+# phone) was previously readable by ANY caller who guessed/was handed a
+# user's UUID, with zero auth. Fix: self gets the full profile; a caller
+# sharing an active group with the target gets a name/avatar-only slice;
+# everyone else gets 404 (never 403 -- see the UUID-enumeration
+# indistinguishability tests further down).
+# ---------------------------------------------------------------------------
+
+
+async def test_user_profile_allows_self_full_fields(client: AsyncClient) -> None:
+    alice = await _register(client, "Alice")
+
+    resp = await client.get(
+        f"{API}/users/{alice['user']['id']}",
+        headers=_auth_headers(alice["access_token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["email"] == alice["user"]["email"]
+    assert "phone" in body
+
+
+async def test_user_profile_rejects_stranger(client: AsyncClient) -> None:
+    alice = await _register(client, "Alice")
+    mallory = await _register(client, "Mallory")
+
+    resp = await client.get(
+        f"{API}/users/{alice['user']['id']}",
+        headers=_auth_headers(mallory["access_token"]),
+    )
+    assert resp.status_code == 404
+
+
+async def test_user_profile_requires_authentication(client: AsyncClient) -> None:
+    alice = await _register(client, "Alice")
+
+    resp = await client.get(
+        f"{API}/users/{alice['user']['id']}", headers={"Authorization": ""}
+    )
+    assert resp.status_code == 401
+
+
+async def test_user_profile_shared_group_member_gets_minimal_fields_only(
+    client: AsyncClient,
+) -> None:
+    alice = await _register(client, "Alice")
+    bob = await _register(client, "Bob")
+    group_resp = await client.post(
+        f"{API}/groups",
+        json={"name": "Shared", "created_by": alice["user"]["id"]},
+        headers=_auth_headers(alice["access_token"]),
+    )
+    assert group_resp.status_code == 201, group_resp.text
+    group = group_resp.json()
+    add_resp = await client.post(
+        f"{API}/groups/{group['id']}/members",
+        json={"user_id": bob["user"]["id"]},
+        headers=_auth_headers(alice["access_token"]),
+    )
+    assert add_resp.status_code == 201, add_resp.text
+
+    resp = await client.get(
+        f"{API}/users/{alice['user']['id']}",
+        headers=_auth_headers(bob["access_token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["name"] == alice["user"]["name"]
+    assert "email" not in body
+    assert "phone" not in body
+    assert "avatar_url" in body
+
+
+async def test_user_profile_not_found_for_authenticated_caller(
+    client: AsyncClient,
+) -> None:
+    alice = await _register(client, "Alice")
+
+    resp = await client.get(
+        f"{API}/users/{uuid.uuid4()}",
+        headers=_auth_headers(alice["access_token"]),
+    )
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# UUID-enumeration indistinguishability: a stranger must get the SAME status
+# code for "real UUID belonging to someone I don't share a group with" and
+# "UUID that doesn't exist at all". If these ever diverge (404 for fake, 403
+# for real), a caller can enumerate valid user UUIDs by brute force, which is
+# exactly the bug the existence-check-before-auth-check ordering caused.
+# ---------------------------------------------------------------------------
+
+
+async def test_user_profile_real_vs_fake_uuid_indistinguishable_to_stranger(
+    client: AsyncClient,
+) -> None:
+    alice = await _register(client, "Alice")
+    mallory = await _register(client, "Mallory")
+
+    real_resp = await client.get(
+        f"{API}/users/{alice['user']['id']}",
+        headers=_auth_headers(mallory["access_token"]),
+    )
+    fake_resp = await client.get(
+        f"{API}/users/{uuid.uuid4()}",
+        headers=_auth_headers(mallory["access_token"]),
+    )
+
+    assert real_resp.status_code == fake_resp.status_code == 404
+
+
+async def test_user_balance_real_vs_fake_uuid_indistinguishable_to_stranger(
+    client: AsyncClient,
+) -> None:
+    alice = await _register(client, "Alice")
+    mallory = await _register(client, "Mallory")
+
+    real_resp = await client.get(
+        f"{API}/users/{alice['user']['id']}/balance",
+        headers=_auth_headers(mallory["access_token"]),
+    )
+    fake_resp = await client.get(
+        f"{API}/users/{uuid.uuid4()}/balance",
+        headers=_auth_headers(mallory["access_token"]),
+    )
+
+    assert real_resp.status_code == fake_resp.status_code == 404

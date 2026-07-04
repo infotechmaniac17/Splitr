@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 
 import pypdfium2 as pdfium
 
+from app.extraction.vendor_detect import build_few_shot_block
+
 if TYPE_CHECKING:
     from app.extraction.router import PdfSource
 
@@ -58,6 +60,16 @@ def build_vision_prompt(
     vendor_hint: str | None = None,
     retry_context: str | None = None,
 ) -> str:
+    """
+    `vendor_hint` here is whatever the pipeline resolved upstream — for
+    image-only PDFs that is ALWAYS the user-supplied hint (never
+    auto-detected): there is no pre-extracted text layer to sniff on this
+    route (that is the entire reason Stage 0 routed here), and running OCR
+    solely to sniff a vendor name would duplicate the vision LLM's own job
+    for negligible benefit. See app.extraction.vendor_detect module
+    docstring. If a vendor hint IS present (user-supplied), its few-shot
+    block is still injected exactly like the text path.
+    """
     parts: list[str] = [
         "You are an invoice line-item extraction engine. The attached "
         "image(s) are page(s) of a scanned or screenshotted receipt. Extract "
@@ -68,6 +80,9 @@ def build_vision_prompt(
     ]
     if vendor_hint:
         parts.append(f"Vendor hint: {vendor_hint}.")
+        few_shot = build_few_shot_block(vendor_hint)
+        if few_shot:
+            parts.append(few_shot)
     if retry_context:
         parts.append(
             "=== Retry: your previous extraction failed validation ===\n"

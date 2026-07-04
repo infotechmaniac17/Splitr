@@ -27,6 +27,7 @@ from app.extraction.router import PdfSource, route
 from app.extraction.schema import ExtractedInvoice, extraction_json_schema
 from app.extraction.text_path import build_text_prompt, extract_text_and_tables
 from app.extraction.validation import ValidationResult, validate_extraction
+from app.extraction.vendor_detect import resolve_vendor
 from app.extraction.vision_path import build_vision_prompt, render_pages_to_png
 
 # One original attempt + one retry-with-mismatch (ARCHITECTURE.md §2.2).
@@ -133,15 +134,22 @@ def _build_request(
 ) -> ExtractionRequest:
     if detected_route == "text":
         content = extract_text_and_tables(pdf_source)
-        prompt = build_text_prompt(content, vendor_hint, retry_context)
+        # Auto-detect from the pre-extracted text layer only when the caller
+        # gave no explicit hint (resolve_vendor never overrides an explicit
+        # vendor_hint — see app.extraction.vendor_detect).
+        resolved_vendor = resolve_vendor(vendor_hint, content["text"])
+        prompt = build_text_prompt(content, resolved_vendor, retry_context)
         return ExtractionRequest(
             mode="text",
             schema=schema,
             text=prompt,
             retry_context=retry_context,
-            vendor_hint=vendor_hint,
+            vendor_hint=resolved_vendor,
         )
 
+    # Vision route: no pre-extracted text to sniff a vendor from, so only
+    # an explicit user-supplied vendor_hint is ever used here (see
+    # app.extraction.vision_path.build_vision_prompt docstring).
     images = render_pages_to_png(pdf_source)
     prompt = build_vision_prompt(vendor_hint, retry_context)
     return ExtractionRequest(

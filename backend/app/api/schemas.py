@@ -51,6 +51,22 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserPublicResponse(BaseModel):
+    """
+    Minimal profile shape for GET /users/{user_id} when the caller is not
+    the target user themself: name + avatar only, no email/phone. Returned
+    to authenticated callers who share an active group with the target
+    (e.g. rendering a group member list) -- never to non-members, who get
+    403 instead (see app/api/users.py:get_user).
+    """
+
+    id: uuid.UUID
+    name: str
+    avatar_url: str | None
+
+    model_config = {"from_attributes": True}
+
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
@@ -401,6 +417,34 @@ class GroupBalancesResponse(BaseModel):
 class UserBalanceResponse(BaseModel):
     user_id: uuid.UUID
     net_balance_minor: int  # positive = owed to user, negative = user owes others
+
+
+class SuggestedTransaction(BaseModel):
+    """One suggested (not yet recorded) payment from payer to payee."""
+
+    payer_id: uuid.UUID
+    payee_id: uuid.UUID
+    amount_minor: int
+
+
+class SimplifiedDebtsResponse(BaseModel):
+    """
+    GET /groups/{group_id}/simplified-debts.
+
+    `simplified=True`: `transactions` is the minimal min-cash-flow set
+    (<= n-1 entries) that would zero out every member's balance.
+    `simplified=False`: the group has `simplify_debts=False`; `transactions`
+    is instead the raw pairwise balances (same shape, one entry per
+    non-cancelling debtor/creditor pair, no netting-reduction applied).
+
+    Either way, these are suggestions only -- no ledger entries are posted
+    by this endpoint. Recording an actual payment still requires calling
+    POST /settlements.
+    """
+
+    group_id: uuid.UUID
+    simplified: bool
+    transactions: list[SuggestedTransaction]
 
 
 # ---------------------------------------------------------------------------

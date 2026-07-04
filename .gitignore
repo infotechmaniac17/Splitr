@@ -61,8 +61,11 @@ out/
 
 # ---------------------------------------------------------------------------
 # Storage (local dev uploads — never commit raw PDFs)
+# Anchored to the runtime upload dir only; unanchored "storage/" previously
+# also matched backend/app/storage/ (the PdfStorage source package) and
+# silently excluded it from every commit.
 # ---------------------------------------------------------------------------
-storage/
+backend/storage/
 
 # ---------------------------------------------------------------------------
 # OS / Editor

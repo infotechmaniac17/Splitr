@@ -143,8 +143,12 @@ async def test_get_user(client: AsyncClient) -> None:
 
 
 async def test_get_user_not_found(client: AsyncClient) -> None:
+    # No registered user exists for this random UUID, so the auto-auth test
+    # helper can't mint a valid token for it either -- the auth gate (PII
+    # leak fix) now rejects with 401 before the route's own 404 check runs.
+    # See tests/test_authorization.py for the authenticated 404/403 cases.
     resp = await client.get(f"/api/v1/users/{uuid.uuid4()}")
-    assert resp.status_code == 404
+    assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------

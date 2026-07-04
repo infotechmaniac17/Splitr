@@ -1,7 +1,9 @@
 """
 Expense endpoints (M1 — manual expenses with equal or explicit splits).
 
-Auth is out of scope for M1; user IDs are accepted directly in payloads.
+All routes in this module require authentication via get_current_user;
+the authenticated caller must also be an active member of the relevant
+group (see _assert_active_group_members).
 
 Splitting logic for M1:
   - If `shares` given: use exactly as-is (Pydantic already validated sum).

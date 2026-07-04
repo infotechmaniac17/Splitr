@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 import pdfplumber
 
+from app.extraction.vendor_detect import build_few_shot_block
+
 if TYPE_CHECKING:
     from app.extraction.router import PdfSource
 
@@ -67,6 +69,9 @@ def build_text_prompt(
     ]
     if vendor_hint:
         parts.append(f"Vendor hint: {vendor_hint}.")
+        few_shot = build_few_shot_block(vendor_hint)
+        if few_shot:
+            parts.append(few_shot)
     parts.append("=== Invoice text ===\n" + content["text"])
     if content["tables"]:
         parts.append("=== Detected tables ===\n" + "\n---\n".join(content["tables"]))
