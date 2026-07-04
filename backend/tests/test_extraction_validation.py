@@ -42,7 +42,13 @@ def _invoice(lines: list[ExtractedLineItem], **kwargs) -> ExtractedInvoice:
 def test_valid_invoice_passes() -> None:
     lines = [
         _line(line_no=1, total_minor=1000, unit_price_minor=500, quantity=Decimal("2")),
-        _line(line_no=2, kind="tax", total_minor=100, unit_price_minor=100, quantity=Decimal("1")),
+        _line(
+            line_no=2,
+            kind="tax",
+            total_minor=100,
+            unit_price_minor=100,
+            quantity=Decimal("1"),
+        ),
     ]
     invoice = _invoice(lines)
     result = validate_extraction(invoice)
@@ -59,7 +65,9 @@ def test_line_arithmetic_mismatch_fails() -> None:
     assert any(i.code == "line_arithmetic" for i in result.issues)
 
 
-def test_invoice_total_mismatch_fails_and_message_matches_architecture_example() -> None:
+def test_invoice_total_mismatch_fails_and_message_matches_architecture_example() -> (
+    None
+):
     lines = [_line(total_minor=842, unit_price_minor=None)]
     invoice = _invoice(lines, invoice_total_minor=857)
     result = validate_extraction(invoice)

@@ -27,8 +27,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
-from pathlib import Path
 
 # Load ONLY the LLM API key vars from the repo-root .env (GEMINI_API_KEY /
 # OPENAI_API_KEY live there) before anything imports app.config.settings, so
@@ -38,6 +36,8 @@ from pathlib import Path
 # takes priority over backend/.env in pydantic-settings — blindly loading it
 # would silently swap the DB driver out from under app.db.
 import os  # noqa: E402
+import sys
+from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 try:
@@ -103,7 +103,9 @@ async def main() -> None:
     for pdf_name, vendor_hint in FIXTURES:
         pdf_path = FIXTURES_DIR / pdf_name
         print(f"=== {pdf_name} ===")
-        result = await run_extraction_pipeline(pdf_path, provider, vendor_hint=vendor_hint)
+        result = await run_extraction_pipeline(
+            pdf_path, provider, vendor_hint=vendor_hint
+        )
         summary = _summarize(result)
         print(json.dumps(summary, indent=2))
         print()

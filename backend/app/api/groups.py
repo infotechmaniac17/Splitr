@@ -90,7 +90,9 @@ async def get_group(
 ) -> Group:
     group = await db.get(Group, group_id)
     if group is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
+        )
     await _assert_active_member(db, group_id, current_user.id)
     return group
 
@@ -108,7 +110,9 @@ async def add_member(
 ) -> GroupMember:
     group = await db.get(Group, group_id)
     if group is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
+        )
 
     # Only an existing active member may invite someone else in.
     actor_membership = await db.get(GroupMember, (group_id, current_user.id))
@@ -120,7 +124,9 @@ async def add_member(
 
     user = await db.get(User, payload.user_id)
     if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     # Check if already a member.
     existing = await db.get(GroupMember, (group_id, payload.user_id))
@@ -149,7 +155,9 @@ async def get_group_balances(
 ) -> GroupBalancesResponse:
     group = await db.get(Group, group_id)
     if group is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
+        )
     await _assert_active_member(db, group_id, current_user.id)
 
     raw = await compute_group_balances(db, group_id)
@@ -191,7 +199,9 @@ async def get_simplified_debts(
     """
     group = await db.get(Group, group_id)
     if group is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
+        )
     await _assert_active_member(db, group_id, current_user.id)
 
     raw = await compute_group_balances(db, group_id)

@@ -54,7 +54,9 @@ async def _make_group(db, creator: User) -> Group:
     group = Group(name="Ledger Test Group", created_by=creator.id)
     db.add(group)
     await db.flush()
-    db.add(GroupMember(group_id=group.id, user_id=creator.id, role=GroupMemberRole.admin))
+    db.add(
+        GroupMember(group_id=group.id, user_id=creator.id, role=GroupMemberRole.admin)
+    )
     await db.flush()
     return group
 
@@ -257,7 +259,7 @@ async def test_user_net_balance_creditor(db_session) -> None:
     bob_net = await compute_user_net_balance(db_session, bob.id)
 
     assert alice_net == 500  # Bob owes Alice 500
-    assert bob_net == -500   # Bob owes Alice 500
+    assert bob_net == -500  # Bob owes Alice 500
 
 
 async def test_user_net_balance_zero_after_settlement(db_session) -> None:
@@ -336,10 +338,8 @@ def test_group_net_balance_is_zero(
         for uid, share in shares.items():
             if uid == payer:
                 continue  # no entry for payer's own share
-            payer_nets[payer] += share    # payer is credited
-            payer_nets[uid] -= share      # participant is debited
+            payer_nets[payer] += share  # payer is credited
+            payer_nets[uid] -= share  # participant is debited
 
     # The total of all nets must be zero (conservation of money).
-    assert sum(payer_nets.values()) == 0, (
-        f"User nets don't sum to 0: {payer_nets}"
-    )
+    assert sum(payer_nets.values()) == 0, f"User nets don't sum to 0: {payer_nets}"

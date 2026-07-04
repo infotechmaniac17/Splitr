@@ -121,8 +121,7 @@ def _weights_to_ratios(
     for user_id, weight in assignments:
         if weight <= 0:
             raise SplitError(
-                f"Line {line.line_id}: weight {weight} for user {user_id} "
-                "must be > 0"
+                f"Line {line.line_id}: weight {weight} for user {user_id} must be > 0"
             )
     total_weight = sum(w for _, w in assignments)
     return {user_id: w / total_weight for user_id, w in assignments}
@@ -203,15 +202,11 @@ def compute_shares(
     else:
         # Degenerate cart (all items free or fully refunded): proportional
         # is undefined, fall back to an equal spread among participants.
-        proportions = {
-            user_id: Fraction(1, len(shares)) for user_id in shares
-        }
+        proportions = {user_id: Fraction(1, len(shares)) for user_id in shares}
 
     for line in cart_lines:
         if line.allocation == AllocationMethod.equal:
-            targets = {
-                user_id: Fraction(1, len(shares)) for user_id in shares
-            }
+            targets = {user_id: Fraction(1, len(shares)) for user_id in shares}
         elif line.allocation == AllocationMethod.manual:
             targets = _weights_to_ratios(line, line.assignments)
         else:  # proportional — the default
@@ -227,9 +222,7 @@ def compute_shares(
     # ------------------------------------------------------------------
     total = sum(shares.values())
     if total != total_minor:
-        raise SplitError(
-            f"Computed shares sum to {total}, expected {total_minor}"
-        )
+        raise SplitError(f"Computed shares sum to {total}, expected {total_minor}")
 
     negative = {u: v for u, v in shares.items() if v < 0}
     if negative:

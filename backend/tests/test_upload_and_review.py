@@ -197,7 +197,9 @@ async def test_upload_enforces_group_membership(api: AsyncClient) -> None:
     alice = await _make_user(api, "alice")
     # No group exists — any group_id is automatically "not a member".
     fake_group_id = str(uuid.uuid4())
-    files = {"file": ("amazon_good.pdf", _pdf_bytes("amazon_good.pdf"), "application/pdf")}
+    files = {
+        "file": ("amazon_good.pdf", _pdf_bytes("amazon_good.pdf"), "application/pdf")
+    }
     resp = await api.post(
         f"{API}/expenses/upload",
         data={"paid_by": alice["id"], "group_id": fake_group_id},
@@ -211,7 +213,9 @@ async def test_upload_pipeline_reaches_parsed(api: AsyncClient) -> None:
     api.extraction_state["provider"] = ScriptedProvider(  # type: ignore[attr-defined]
         [_load_expected("amazon_good.expected.json")]
     )
-    expense = await _upload(api, alice, filename="amazon_good.pdf", vendor_hint="Amazon")
+    expense = await _upload(
+        api, alice, filename="amazon_good.pdf", vendor_hint="Amazon"
+    )
 
     resp = await api.get(f"{API}/expenses/{expense['id']}")
     assert resp.status_code == 200
@@ -226,7 +230,9 @@ async def test_upload_pipeline_reaches_needs_review(api: AsyncClient) -> None:
     alice = await _make_user(api, "alice")
     broken = _load_expected("zepto_broken.expected.json")
     api.extraction_state["provider"] = ScriptedProvider([broken, broken])  # type: ignore[attr-defined]
-    expense = await _upload(api, alice, filename="zepto_broken.pdf", vendor_hint="Zepto")
+    expense = await _upload(
+        api, alice, filename="zepto_broken.pdf", vendor_hint="Zepto"
+    )
 
     resp = await api.get(f"{API}/expenses/{expense['id']}")
     assert resp.status_code == 200

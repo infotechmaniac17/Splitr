@@ -50,7 +50,9 @@ async def _make_group(db, creator: User) -> Group:
     group = Group(name="Test Group", created_by=creator.id)
     db.add(group)
     await db.flush()
-    member = GroupMember(group_id=group.id, user_id=creator.id, role=GroupMemberRole.admin)
+    member = GroupMember(
+        group_id=group.id, user_id=creator.id, role=GroupMemberRole.admin
+    )
     db.add(member)
     await db.flush()
     return group
@@ -136,11 +138,15 @@ async def test_item_assignment_unique(db_session) -> None:
     expense = await _make_expense(db_session, group, alice)
     li = await _make_line_item(db_session, expense)
 
-    a1 = ItemAssignment(line_item_id=li.id, user_id=alice.id, weight=1, share_minor=1000)
+    a1 = ItemAssignment(
+        line_item_id=li.id, user_id=alice.id, weight=1, share_minor=1000
+    )
     db_session.add(a1)
     await db_session.flush()
 
-    a2 = ItemAssignment(line_item_id=li.id, user_id=alice.id, weight=1, share_minor=1000)
+    a2 = ItemAssignment(
+        line_item_id=li.id, user_id=alice.id, weight=1, share_minor=1000
+    )
     db_session.add(a2)
     with pytest.raises(IntegrityError):
         await db_session.flush()

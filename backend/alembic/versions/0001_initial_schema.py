@@ -38,7 +38,9 @@ def upgrade() -> None:
         sa.Column("email", sa.Text, nullable=False),
         sa.Column("phone", sa.Text, nullable=True),
         sa.Column("avatar_url", sa.Text, nullable=True),
-        sa.Column("default_currency", sa.String(3), nullable=False, server_default="INR"),
+        sa.Column(
+            "default_currency", sa.String(3), nullable=False, server_default="INR"
+        ),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -75,8 +77,15 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     op.create_table(
         "group_members",
-        sa.Column("group_id", sa.Uuid(as_uuid=True), sa.ForeignKey("groups.id"), nullable=False),
-        sa.Column("user_id", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column(
+            "group_id",
+            sa.Uuid(as_uuid=True),
+            sa.ForeignKey("groups.id"),
+            nullable=False,
+        ),
+        sa.Column(
+            "user_id", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False
+        ),
         sa.Column(
             "role",
             sa.String(50),
@@ -100,7 +109,12 @@ def upgrade() -> None:
     op.create_table(
         "subgroups",
         sa.Column("id", sa.Uuid(as_uuid=True), primary_key=True),
-        sa.Column("group_id", sa.Uuid(as_uuid=True), sa.ForeignKey("groups.id"), nullable=False),
+        sa.Column(
+            "group_id",
+            sa.Uuid(as_uuid=True),
+            sa.ForeignKey("groups.id"),
+            nullable=False,
+        ),
         sa.Column("name", sa.Text, nullable=False),
     )
 
@@ -115,7 +129,9 @@ def upgrade() -> None:
             sa.ForeignKey("subgroups.id"),
             nullable=False,
         ),
-        sa.Column("user_id", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column(
+            "user_id", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False
+        ),
         sa.PrimaryKeyConstraint("subgroup_id", "user_id"),
     )
 
@@ -125,9 +141,15 @@ def upgrade() -> None:
     op.create_table(
         "settlements",
         sa.Column("id", sa.Uuid(as_uuid=True), primary_key=True),
-        sa.Column("group_id", sa.Uuid(as_uuid=True), sa.ForeignKey("groups.id"), nullable=True),
-        sa.Column("payer_id", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False),
-        sa.Column("payee_id", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column(
+            "group_id", sa.Uuid(as_uuid=True), sa.ForeignKey("groups.id"), nullable=True
+        ),
+        sa.Column(
+            "payer_id", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False
+        ),
+        sa.Column(
+            "payee_id", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False
+        ),
         sa.Column("amount_minor", sa.BigInteger, nullable=False),
         sa.Column("method", sa.String(50), nullable=False),
         sa.Column("note", sa.Text, nullable=True),
@@ -149,8 +171,12 @@ def upgrade() -> None:
     op.create_table(
         "expenses",
         sa.Column("id", sa.Uuid(as_uuid=True), primary_key=True),
-        sa.Column("group_id", sa.Uuid(as_uuid=True), sa.ForeignKey("groups.id"), nullable=True),
-        sa.Column("paid_by", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column(
+            "group_id", sa.Uuid(as_uuid=True), sa.ForeignKey("groups.id"), nullable=True
+        ),
+        sa.Column(
+            "paid_by", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False
+        ),
         sa.Column("vendor", sa.Text, nullable=True),
         sa.Column("invoice_date", sa.Date, nullable=True),
         sa.Column("invoice_number", sa.Text, nullable=True),
@@ -158,7 +184,9 @@ def upgrade() -> None:
         sa.Column("subtotal_minor", sa.BigInteger, nullable=True),
         sa.Column("total_minor", sa.BigInteger, nullable=False),
         sa.Column("source", sa.String(50), nullable=False, server_default="manual"),
-        sa.Column("parse_status", sa.String(50), nullable=False, server_default="parsed"),
+        sa.Column(
+            "parse_status", sa.String(50), nullable=False, server_default="parsed"
+        ),
         sa.Column("pdf_object_key", sa.Text, nullable=True),
         sa.Column("raw_extraction", postgresql.JSONB, nullable=True),
         sa.Column("status", sa.String(50), nullable=False, server_default="active"),
@@ -198,7 +226,12 @@ def upgrade() -> None:
         sa.Column("line_no", sa.Integer, nullable=False),
         sa.Column("kind", sa.String(50), nullable=False),
         sa.Column("description", sa.Text, nullable=True),
-        sa.Column("quantity", sa.Numeric(precision=10, scale=3), nullable=False, server_default="1"),
+        sa.Column(
+            "quantity",
+            sa.Numeric(precision=10, scale=3),
+            nullable=False,
+            server_default="1",
+        ),
         sa.Column("unit_price_minor", sa.BigInteger, nullable=True),
         sa.Column("total_minor", sa.BigInteger, nullable=False),
         sa.Column("bundle_group_id", sa.Uuid(as_uuid=True), nullable=True),
@@ -237,9 +270,14 @@ def upgrade() -> None:
             sa.ForeignKey("expense_line_items.id"),
             nullable=False,
         ),
-        sa.Column("user_id", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False),
         sa.Column(
-            "weight", sa.Numeric(precision=10, scale=4), nullable=False, server_default="1"
+            "user_id", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False
+        ),
+        sa.Column(
+            "weight",
+            sa.Numeric(precision=10, scale=4),
+            nullable=False,
+            server_default="1",
         ),
         sa.Column("share_minor", sa.BigInteger, nullable=True),
         sa.UniqueConstraint("line_item_id", "user_id", name="uq_item_assignment"),
@@ -251,7 +289,9 @@ def upgrade() -> None:
     op.create_table(
         "ledger_entries",
         sa.Column("id", sa.Uuid(as_uuid=True), primary_key=True),
-        sa.Column("group_id", sa.Uuid(as_uuid=True), sa.ForeignKey("groups.id"), nullable=True),
+        sa.Column(
+            "group_id", sa.Uuid(as_uuid=True), sa.ForeignKey("groups.id"), nullable=True
+        ),
         sa.Column(
             "expense_id",
             sa.Uuid(as_uuid=True),
@@ -265,10 +305,16 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column(
-            "debtor_id", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False
+            "debtor_id",
+            sa.Uuid(as_uuid=True),
+            sa.ForeignKey("users.id"),
+            nullable=False,
         ),
         sa.Column(
-            "creditor_id", sa.Uuid(as_uuid=True), sa.ForeignKey("users.id"), nullable=False
+            "creditor_id",
+            sa.Uuid(as_uuid=True),
+            sa.ForeignKey("users.id"),
+            nullable=False,
         ),
         sa.Column("amount_minor", sa.BigInteger, nullable=False),
         sa.Column("entry_type", sa.String(50), nullable=False),
@@ -294,7 +340,9 @@ def upgrade() -> None:
     op.create_index("ix_ledger_expense_id", "ledger_entries", ["expense_id"])
     op.create_index("ix_expenses_group_id", "expenses", ["group_id"])
     op.create_index("ix_expenses_paid_by", "expenses", ["paid_by"])
-    op.create_index("ix_item_assignments_line_item_id", "item_assignments", ["line_item_id"])
+    op.create_index(
+        "ix_item_assignments_line_item_id", "item_assignments", ["line_item_id"]
+    )
 
 
 def downgrade() -> None:

@@ -46,7 +46,9 @@ from app.domain.models import (
 
 
 async def _make_user(db: AsyncSession, name: str, email: str | None = None) -> User:
-    user = User(name=name, email=email or f"{name.lower()}_{uuid.uuid4().hex[:6]}@test.com")
+    user = User(
+        name=name, email=email or f"{name.lower()}_{uuid.uuid4().hex[:6]}@test.com"
+    )
     db.add(user)
     await db.flush()
     return user
@@ -56,7 +58,9 @@ async def _make_group(db: AsyncSession, creator: User) -> Group:
     group = Group(name="Hardening Test Group", created_by=creator.id)
     db.add(group)
     await db.flush()
-    db.add(GroupMember(group_id=group.id, user_id=creator.id, role=GroupMemberRole.admin))
+    db.add(
+        GroupMember(group_id=group.id, user_id=creator.id, role=GroupMemberRole.admin)
+    )
     await db.flush()
     return group
 
@@ -158,14 +162,22 @@ async def test_h1_multi_item_confirm_succeeds(client: AsyncClient) -> None:
     H1 API-level regression: expense with 3 items all assigned to one user
     must confirm and produce a correct (non-doubled) balance.
     """
-    r_alice = await client.post("/api/v1/users", json={"name": "Alice", "email": "alice_h1@test.com"})
-    r_bob = await client.post("/api/v1/users", json={"name": "Bob", "email": "bob_h1@test.com"})
+    r_alice = await client.post(
+        "/api/v1/users", json={"name": "Alice", "email": "alice_h1@test.com"}
+    )
+    r_bob = await client.post(
+        "/api/v1/users", json={"name": "Bob", "email": "bob_h1@test.com"}
+    )
     alice = r_alice.json()
     bob = r_bob.json()
 
-    r_group = await client.post("/api/v1/groups", json={"name": "H1 Group", "created_by": alice["id"]})
+    r_group = await client.post(
+        "/api/v1/groups", json={"name": "H1 Group", "created_by": alice["id"]}
+    )
     group = r_group.json()
-    await client.post(f"/api/v1/groups/{group['id']}/members", json={"user_id": bob["id"]})
+    await client.post(
+        f"/api/v1/groups/{group['id']}/members", json={"user_id": bob["id"]}
+    )
 
     # Alice pays 900, split 300/300/300 but ALL assigned to alice (payer).
     # Bob gets 0 share. Confirm should succeed and balance == 0.
@@ -199,14 +211,22 @@ async def test_h2_negative_payer_share_rejected_at_api(client: AsyncClient) -> N
     H2: payer share of -500 with other=1500 (sum=1000=total) must be rejected
     at the API layer with HTTP 422.
     """
-    r_alice = await client.post("/api/v1/users", json={"name": "Alice", "email": "alice_h2@test.com"})
-    r_bob = await client.post("/api/v1/users", json={"name": "Bob", "email": "bob_h2@test.com"})
+    r_alice = await client.post(
+        "/api/v1/users", json={"name": "Alice", "email": "alice_h2@test.com"}
+    )
+    r_bob = await client.post(
+        "/api/v1/users", json={"name": "Bob", "email": "bob_h2@test.com"}
+    )
     alice = r_alice.json()
     bob = r_bob.json()
 
-    r_group = await client.post("/api/v1/groups", json={"name": "H2 Group", "created_by": alice["id"]})
+    r_group = await client.post(
+        "/api/v1/groups", json={"name": "H2 Group", "created_by": alice["id"]}
+    )
     group = r_group.json()
-    await client.post(f"/api/v1/groups/{group['id']}/members", json={"user_id": bob["id"]})
+    await client.post(
+        f"/api/v1/groups/{group['id']}/members", json={"user_id": bob["id"]}
+    )
 
     # payer=-500, other=1500 → sum=1000=total but payer share is negative.
     resp = await client.post(
@@ -333,9 +353,7 @@ async def test_h3_trigger_blocks_confirmed_expense_financial_mutation(
 
     with pytest.raises(DBAPIError):
         await db_session.execute(
-            sa.update(Expense)
-            .where(Expense.id == expense.id)
-            .values(total_minor=9999)
+            sa.update(Expense).where(Expense.id == expense.id).values(total_minor=9999)
         )
         await db_session.flush()
 
@@ -356,9 +374,7 @@ async def test_h3_trigger_allows_voiding_confirmed_expense(
 
     # Updating status to 'voided' must NOT raise.
     await db_session.execute(
-        sa.update(Expense)
-        .where(Expense.id == expense.id)
-        .values(status="voided")
+        sa.update(Expense).where(Expense.id == expense.id).values(status="voided")
     )
     await db_session.commit()  # must succeed
 
@@ -375,9 +391,7 @@ async def test_h3_trigger_blocks_confirmed_expense_delete(
     await db_session.commit()
 
     with pytest.raises(DBAPIError):
-        await db_session.execute(
-            sa.delete(Expense).where(Expense.id == expense.id)
-        )
+        await db_session.execute(sa.delete(Expense).where(Expense.id == expense.id))
         await db_session.flush()
 
 
@@ -397,8 +411,12 @@ async def test_c1_concurrent_confirm_atomic(client: AsyncClient) -> None:
     parse_status='confirmed', and returns the idempotent response.
     """
     # --- Setup ---
-    r_alice = await client.post("/api/v1/users", json={"name": "Alice", "email": "alice_c1@test.com"})
-    r_bob = await client.post("/api/v1/users", json={"name": "Bob", "email": "bob_c1@test.com"})
+    r_alice = await client.post(
+        "/api/v1/users", json={"name": "Alice", "email": "alice_c1@test.com"}
+    )
+    r_bob = await client.post(
+        "/api/v1/users", json={"name": "Bob", "email": "bob_c1@test.com"}
+    )
     alice = r_alice.json()
     bob = r_bob.json()
 
@@ -406,7 +424,9 @@ async def test_c1_concurrent_confirm_atomic(client: AsyncClient) -> None:
         "/api/v1/groups", json={"name": "C1 Group", "created_by": alice["id"]}
     )
     group = r_group.json()
-    await client.post(f"/api/v1/groups/{group['id']}/members", json={"user_id": bob["id"]})
+    await client.post(
+        f"/api/v1/groups/{group['id']}/members", json={"user_id": bob["id"]}
+    )
 
     r_exp = await client.post(
         "/api/v1/expenses",
@@ -432,7 +452,9 @@ async def test_c1_concurrent_confirm_atomic(client: AsyncClient) -> None:
     # --- Verify: Bob owes Alice exactly 500 (not 1000 from a double-post) ---
     balances_resp = await client.get(f"/api/v1/groups/{group['id']}/balances")
     balances = balances_resp.json()["balances"]
-    assert len(balances) == 1, f"Expected 1 balance entry, got {len(balances)}: {balances}"
+    assert len(balances) == 1, (
+        f"Expected 1 balance entry, got {len(balances)}: {balances}"
+    )
     assert balances[0]["net_amount_minor"] == 500, (
         f"Expected 500 (single post), got {balances[0]['net_amount_minor']} "
         "(double-post would give 1000)."
@@ -446,8 +468,12 @@ async def test_c1_concurrent_confirm_atomic(client: AsyncClient) -> None:
 
 async def test_m1_non_member_expense_create_rejected(client: AsyncClient) -> None:
     """M1: expense create is rejected when paid_by is not an active group member."""
-    r_alice = await client.post("/api/v1/users", json={"name": "Alice", "email": "alice_m1a@test.com"})
-    r_outsider = await client.post("/api/v1/users", json={"name": "Outsider", "email": "outsider_m1@test.com"})
+    r_alice = await client.post(
+        "/api/v1/users", json={"name": "Alice", "email": "alice_m1a@test.com"}
+    )
+    r_outsider = await client.post(
+        "/api/v1/users", json={"name": "Outsider", "email": "outsider_m1@test.com"}
+    )
     alice = r_alice.json()
     outsider = r_outsider.json()
 
@@ -469,10 +495,16 @@ async def test_m1_non_member_expense_create_rejected(client: AsyncClient) -> Non
     assert resp.status_code == 422, f"Expected 422, got {resp.status_code}: {resp.text}"
 
 
-async def test_m1_non_member_participant_expense_create_rejected(client: AsyncClient) -> None:
+async def test_m1_non_member_participant_expense_create_rejected(
+    client: AsyncClient,
+) -> None:
     """M1: expense create rejected when a participant is not an active group member."""
-    r_alice = await client.post("/api/v1/users", json={"name": "Alice", "email": "alice_m1b@test.com"})
-    r_outsider = await client.post("/api/v1/users", json={"name": "Outsider", "email": "outsider_m1b@test.com"})
+    r_alice = await client.post(
+        "/api/v1/users", json={"name": "Alice", "email": "alice_m1b@test.com"}
+    )
+    r_outsider = await client.post(
+        "/api/v1/users", json={"name": "Outsider", "email": "outsider_m1b@test.com"}
+    )
     alice = r_alice.json()
     outsider = r_outsider.json()
 
@@ -495,9 +527,15 @@ async def test_m1_non_member_participant_expense_create_rejected(client: AsyncCl
 
 async def test_m1_non_member_settlement_rejected(client: AsyncClient) -> None:
     """M1: settlement is rejected when payer is not an active group member."""
-    r_alice = await client.post("/api/v1/users", json={"name": "Alice", "email": "alice_m1c@test.com"})
-    r_bob = await client.post("/api/v1/users", json={"name": "Bob", "email": "bob_m1c@test.com"})
-    r_outsider = await client.post("/api/v1/users", json={"name": "Outsider", "email": "outsider_m1c@test.com"})
+    r_alice = await client.post(
+        "/api/v1/users", json={"name": "Alice", "email": "alice_m1c@test.com"}
+    )
+    r_bob = await client.post(
+        "/api/v1/users", json={"name": "Bob", "email": "bob_m1c@test.com"}
+    )
+    r_outsider = await client.post(
+        "/api/v1/users", json={"name": "Outsider", "email": "outsider_m1c@test.com"}
+    )
     alice = r_alice.json()
     bob = r_bob.json()
     outsider = r_outsider.json()
@@ -506,7 +544,9 @@ async def test_m1_non_member_settlement_rejected(client: AsyncClient) -> None:
         "/api/v1/groups", json={"name": "M1 Group C", "created_by": alice["id"]}
     )
     group = r_group.json()
-    await client.post(f"/api/v1/groups/{group['id']}/members", json={"user_id": bob["id"]})
+    await client.post(
+        f"/api/v1/groups/{group['id']}/members", json={"user_id": bob["id"]}
+    )
     # outsider NOT added.
 
     resp = await client.post(
@@ -524,8 +564,12 @@ async def test_m1_non_member_settlement_rejected(client: AsyncClient) -> None:
 
 async def test_m1_no_group_id_skips_membership_check(client: AsyncClient) -> None:
     """M1: personal expense (group_id=NULL) skips membership check — any user allowed."""
-    r_alice = await client.post("/api/v1/users", json={"name": "Alice", "email": "alice_m1d@test.com"})
-    r_bob = await client.post("/api/v1/users", json={"name": "Bob", "email": "bob_m1d@test.com"})
+    r_alice = await client.post(
+        "/api/v1/users", json={"name": "Alice", "email": "alice_m1d@test.com"}
+    )
+    r_bob = await client.post(
+        "/api/v1/users", json={"name": "Bob", "email": "bob_m1d@test.com"}
+    )
     alice = r_alice.json()
     bob = r_bob.json()
 
@@ -548,8 +592,12 @@ async def test_m1_no_group_id_skips_membership_check(client: AsyncClient) -> Non
 
 async def test_m2_settlement_zero_amount_rejected_at_api(client: AsyncClient) -> None:
     """M2/M3: settlement with amount_minor=0 is rejected at Pydantic level."""
-    r_alice = await client.post("/api/v1/users", json={"name": "Alice", "email": "alice_m2@test.com"})
-    r_bob = await client.post("/api/v1/users", json={"name": "Bob", "email": "bob_m2@test.com"})
+    r_alice = await client.post(
+        "/api/v1/users", json={"name": "Alice", "email": "alice_m2@test.com"}
+    )
+    r_bob = await client.post(
+        "/api/v1/users", json={"name": "Bob", "email": "bob_m2@test.com"}
+    )
     alice = r_alice.json()
     bob = r_bob.json()
 
@@ -567,7 +615,9 @@ async def test_m2_settlement_zero_amount_rejected_at_api(client: AsyncClient) ->
 
 async def test_m3_expense_zero_total_rejected_at_api(client: AsyncClient) -> None:
     """M2/M3: expense with total_minor=0 is rejected at Pydantic level."""
-    r_alice = await client.post("/api/v1/users", json={"name": "Alice", "email": "alice_m3@test.com"})
+    r_alice = await client.post(
+        "/api/v1/users", json={"name": "Alice", "email": "alice_m3@test.com"}
+    )
     alice = r_alice.json()
 
     resp = await client.post(
@@ -637,7 +687,9 @@ async def test_m3_expense_zero_total_check_constraint(
 
 async def test_m4_quantity_accepts_decimal(client: AsyncClient) -> None:
     """M4: line item with quantity as decimal string/value is accepted."""
-    r_alice = await client.post("/api/v1/users", json={"name": "Alice", "email": "alice_m4@test.com"})
+    r_alice = await client.post(
+        "/api/v1/users", json={"name": "Alice", "email": "alice_m4@test.com"}
+    )
     alice = r_alice.json()
 
     resp = await client.post(
@@ -651,7 +703,7 @@ async def test_m4_quantity_accepts_decimal(client: AsyncClient) -> None:
                     "line_no": 1,
                     "kind": "item",
                     "description": "Half kg rice",
-                    "quantity": "0.5",   # Decimal-compatible string
+                    "quantity": "0.5",  # Decimal-compatible string
                     "unit_price_minor": 1500,
                     "total_minor": 750,
                 }
@@ -667,7 +719,9 @@ async def test_m4_quantity_accepts_decimal(client: AsyncClient) -> None:
 
 async def test_m4_quantity_zero_rejected(client: AsyncClient) -> None:
     """M4: quantity=0 is rejected (gt=0 constraint)."""
-    r_alice = await client.post("/api/v1/users", json={"name": "Alice", "email": "alice_m4b@test.com"})
+    r_alice = await client.post(
+        "/api/v1/users", json={"name": "Alice", "email": "alice_m4b@test.com"}
+    )
     alice = r_alice.json()
 
     resp = await client.post(
@@ -680,7 +734,7 @@ async def test_m4_quantity_zero_rejected(client: AsyncClient) -> None:
                 {
                     "line_no": 1,
                     "kind": "item",
-                    "quantity": "0",   # must be > 0
+                    "quantity": "0",  # must be > 0
                     "total_minor": 100,
                 }
             ],
@@ -698,7 +752,9 @@ async def test_m5_settlement_payer_equals_payee_rejected_at_api(
     client: AsyncClient,
 ) -> None:
     """M5: settlement where payer_id == payee_id is rejected with HTTP 422."""
-    r_alice = await client.post("/api/v1/users", json={"name": "Alice", "email": "alice_m5@test.com"})
+    r_alice = await client.post(
+        "/api/v1/users", json={"name": "Alice", "email": "alice_m5@test.com"}
+    )
     alice = r_alice.json()
 
     resp = await client.post(
@@ -766,7 +822,9 @@ async def test_m6_manual_expense_api_sets_parsed(client: AsyncClient) -> None:
     M6: POST /expenses (manual) explicitly sets parse_status='parsed' so the
     expense can immediately be confirmed.
     """
-    r_alice = await client.post("/api/v1/users", json={"name": "Alice", "email": "alice_m6@test.com"})
+    r_alice = await client.post(
+        "/api/v1/users", json={"name": "Alice", "email": "alice_m6@test.com"}
+    )
     alice = r_alice.json()
 
     resp = await client.post(
@@ -828,7 +886,11 @@ async def test_confirm_gate_rejects_non_parsed_statuses(
     alice = await _make_user(db_session, "Alice")
     await db_session.commit()
 
-    for bad_status in (ParseStatus.queued, ParseStatus.needs_review, ParseStatus.failed):
+    for bad_status in (
+        ParseStatus.queued,
+        ParseStatus.needs_review,
+        ParseStatus.failed,
+    ):
         expense = Expense(
             paid_by=alice.id,
             currency="INR",

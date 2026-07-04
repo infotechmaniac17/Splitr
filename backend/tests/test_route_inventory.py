@@ -64,7 +64,9 @@ def _collect_api_routes(routes: Iterable[object]) -> list[APIRoute]:
     return out
 
 
-def _dependency_chain_calls(dependant: object, seen: set[object] | None = None) -> set[object]:
+def _dependency_chain_calls(
+    dependant: object, seen: set[object] | None = None
+) -> set[object]:
     """
     Recursively collect every callable in a route's resolved dependency
     tree (FastAPI `Dependant.dependencies` recursion), including

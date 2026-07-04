@@ -19,7 +19,9 @@ from app.extraction.vision_path import build_vision_prompt
 
 
 def test_detect_vendor_matches_swiggy() -> None:
-    text = "Order Summary\nBundl Technologies Pvt Ltd\nswiggy.com\nGSTIN: 29AAECB1234F1Z5"
+    text = (
+        "Order Summary\nBundl Technologies Pvt Ltd\nswiggy.com\nGSTIN: 29AAECB1234F1Z5"
+    )
     assert detect_vendor(text) == "Swiggy"
 
 
@@ -154,7 +156,9 @@ def test_vision_prompt_only_uses_explicit_hint_never_autodetects() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_build_request_auto_detects_vendor_for_text_route_when_no_hint(tmp_path) -> None:
+def test_build_request_auto_detects_vendor_for_text_route_when_no_hint(
+    tmp_path,
+) -> None:
     from reportlab.pdfgen import canvas
 
     pdf_path = tmp_path / "swiggy.pdf"
@@ -165,7 +169,9 @@ def test_build_request_auto_detects_vendor_for_text_route_when_no_hint(tmp_path)
     c.drawString(72, 660, "Item: Chicken Biryani  Qty: 1  Amount: 220.00")
     c.save()
 
-    request = _build_request(pdf_path, "text", schema={}, vendor_hint=None, retry_context=None)
+    request = _build_request(
+        pdf_path, "text", schema={}, vendor_hint=None, retry_context=None
+    )
     assert request.vendor_hint == "Swiggy"
     assert "Known vendor quirks for Swiggy" in request.text
 

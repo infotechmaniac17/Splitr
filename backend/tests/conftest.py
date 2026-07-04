@@ -79,16 +79,20 @@ def pytest_configure(config: pytest.Config) -> None:
 def _skip_if_not_postgres(request: pytest.FixtureRequest) -> None:
     """Skip tests marked @pytest.mark.postgres when not running on Postgres."""
     if request.node.get_closest_marker("postgres") and not _using_postgres():
-        pytest.skip("requires Postgres — set TEST_DATABASE_URL to a postgresql+psycopg:// URL")
+        pytest.skip(
+            "requires Postgres — set TEST_DATABASE_URL to a postgresql+psycopg:// URL"
+        )
 
 
 # ---------------------------------------------------------------------------
 # Postgres trigger DDL (shared module from alembic/ package)
 # ---------------------------------------------------------------------------
 
+
 def _postgres_trigger_ddl() -> list[str]:
     """Return the trigger DDL statements from app/domain/pg_guards.py."""
     from app.domain.pg_guards import ALL_TRIGGER_DDL  # noqa: PLC0415
+
     return list(ALL_TRIGGER_DDL)
 
 

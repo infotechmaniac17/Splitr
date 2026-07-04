@@ -98,17 +98,23 @@ async def get_user(
     if user_id == current_user.id:
         user = await db.get(User, user_id)
         if user is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+            )
         return user
 
     # Authorization check MUST happen before (or fused with) existence so
     # that "doesn't exist" and "exists but not authorized" are
     # indistinguishable to a non-self caller -- both yield plain 404.
     if not await _shares_active_group(db, current_user.id, user_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     user = await db.get(User, user_id)
     if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     return UserPublicResponse.model_validate(user)

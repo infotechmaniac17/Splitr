@@ -26,7 +26,10 @@ def _auth_headers(token: str) -> dict[str, str]:
 
 
 async def _register(
-    client: AsyncClient, name: str, email: str | None = None, password: str = "correct-horse-battery"
+    client: AsyncClient,
+    name: str,
+    email: str | None = None,
+    password: str = "correct-horse-battery",
 ) -> dict:
     resp = await client.post(
         f"{API}/auth/register",
@@ -45,7 +48,9 @@ async def _register(
 # ---------------------------------------------------------------------------
 
 
-async def test_register_creates_user_and_returns_token_pair(client: AsyncClient) -> None:
+async def test_register_creates_user_and_returns_token_pair(
+    client: AsyncClient,
+) -> None:
     body = await _register(client, "Alice")
     assert body["token_type"] == "bearer"
     assert body["access_token"]
@@ -187,7 +192,9 @@ async def test_refresh_issues_new_access_token(client: AsyncClient) -> None:
     assert new_body["expires_in"] == 15 * 60
 
     # The new access token actually works against a protected endpoint.
-    me = await client.get(f"{API}/auth/me", headers=_auth_headers(new_body["access_token"]))
+    me = await client.get(
+        f"{API}/auth/me", headers=_auth_headers(new_body["access_token"])
+    )
     assert me.status_code == 200
     assert me.json()["id"] == body["user"]["id"]
 
@@ -223,7 +230,9 @@ async def test_me_rejects_garbage_token(client: AsyncClient) -> None:
 
 async def test_me_returns_current_user(client: AsyncClient) -> None:
     body = await _register(client, "Alice")
-    resp = await client.get(f"{API}/auth/me", headers=_auth_headers(body["access_token"]))
+    resp = await client.get(
+        f"{API}/auth/me", headers=_auth_headers(body["access_token"])
+    )
     assert resp.status_code == 200
     assert resp.json()["email"] == body["user"]["email"]
 

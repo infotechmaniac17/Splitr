@@ -395,7 +395,12 @@ async def test_prime_total_three_users(client: AsyncClient) -> None:
     carol_bal = await get_user_balance(client, carol["id"])
 
     # Conservation: all nets sum to 0.
-    assert alice_bal["net_balance_minor"] + bob_bal["net_balance_minor"] + carol_bal["net_balance_minor"] == 0
+    assert (
+        alice_bal["net_balance_minor"]
+        + bob_bal["net_balance_minor"]
+        + carol_bal["net_balance_minor"]
+        == 0
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +426,9 @@ def test_random_expense_nets_sum_to_zero(
     from app.domain.rounding import allocate_largest_remainder
 
     user_ids = [uuid.uuid4() for _ in range(n_participants)]
-    ratios: dict[uuid.UUID, Fraction] = {uid: Fraction(1, n_participants) for uid in user_ids}
+    ratios: dict[uuid.UUID, Fraction] = {
+        uid: Fraction(1, n_participants) for uid in user_ids
+    }
     shares = allocate_largest_remainder(total_minor, ratios)
 
     assert sum(shares.values()) == total_minor
@@ -433,7 +440,7 @@ def test_random_expense_nets_sum_to_zero(
         if uid == payer:
             continue
         nets[payer] += share  # payer is credited
-        nets[uid] -= share    # participant is debited
+        nets[uid] -= share  # participant is debited
 
     assert sum(nets.values()) == 0
 

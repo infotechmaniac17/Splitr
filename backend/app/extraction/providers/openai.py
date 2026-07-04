@@ -58,7 +58,9 @@ class OpenAIProvider(ExtractionProvider):
             if request.mode == "vision" and request.images:
                 import base64  # noqa: PLC0415
 
-                content: list[dict[str, Any]] = [{"type": "text", "text": request.text or ""}]
+                content: list[dict[str, Any]] = [
+                    {"type": "text", "text": request.text or ""}
+                ]
                 for img_bytes in request.images:
                     b64 = base64.b64encode(img_bytes).decode("ascii")
                     content.append(
@@ -78,7 +80,10 @@ class OpenAIProvider(ExtractionProvider):
                 messages=messages,
                 response_format={
                     "type": "json_schema",
-                    "json_schema": {"name": "extracted_invoice", "schema": request.schema},
+                    "json_schema": {
+                        "name": "extracted_invoice",
+                        "schema": request.schema,
+                    },
                 },
             )
             content_str = response.choices[0].message.content or "{}"

@@ -63,9 +63,7 @@ def main() -> int:
         # need a human triage pass, not an automatic merge block.
         ctx = MigrationContext.configure(conn)
         diff = compare_metadata(ctx, Base.metadata)
-        table_level_diff = [
-            d for d in diff if d[0] in ("add_table", "remove_table")
-        ]
+        table_level_diff = [d for d in diff if d[0] in ("add_table", "remove_table")]
         other_diff = [d for d in diff if d not in table_level_diff]
 
         if table_level_diff:

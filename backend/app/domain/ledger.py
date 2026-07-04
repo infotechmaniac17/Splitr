@@ -168,8 +168,8 @@ async def post_refund_to_ledger(
         entry = LedgerEntry(
             group_id=expense.group_id,
             expense_id=expense.id,
-            debtor_id=paid_by,      # reversed vs expense_share
-            creditor_id=user_id,    # money flows back to the participant
+            debtor_id=paid_by,  # reversed vs expense_share
+            creditor_id=user_id,  # money flows back to the participant
             amount_minor=amount,
             entry_type=LedgerEntryType.refund_reversal,
         )
@@ -235,7 +235,7 @@ async def post_settlement_to_ledger(
     entry = LedgerEntry(
         group_id=group_id,
         settlement_id=settlement.id,
-        debtor_id=payee_id,    # reversed
+        debtor_id=payee_id,  # reversed
         creditor_id=payer_id,  # reversed
         amount_minor=amount_minor,
         entry_type=LedgerEntryType.settlement,
@@ -283,6 +283,10 @@ async def compute_group_balances(
     processed: set[frozenset[uuid.UUID]] = set()
 
     for (debtor, creditor), _ in gross.items():
+        # `debtor`/`creditor` here are just whichever direction was first-seen
+        # in `gross` for this pair — not necessarily the true net direction.
+        # The `net > 0` / `net < 0` branches below swap them as needed so the
+        # emitted tuple always reads (actual debtor, actual creditor, amount).
         pair: frozenset[uuid.UUID] = frozenset({debtor, creditor})
         if pair in processed:
             continue

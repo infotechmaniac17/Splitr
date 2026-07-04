@@ -21,7 +21,9 @@ class S3Storage:
     ) -> None:
         try:
             import boto3  # noqa: PLC0415
-        except ImportError as exc:  # pragma: no cover - exercised only when misconfigured
+        except (
+            ImportError
+        ) as exc:  # pragma: no cover - exercised only when misconfigured
             raise RuntimeError(
                 "OBJECT_STORAGE_BUCKET is set but boto3 is not installed. "
                 "Run `pip install boto3` (or unset OBJECT_STORAGE_BUCKET to "

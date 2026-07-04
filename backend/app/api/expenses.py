@@ -484,7 +484,9 @@ async def get_expense_pdf(
     result = await db.execute(select(Expense).where(Expense.id == expense_id))
     expense = result.scalar_one_or_none()
     if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found"
+        )
     await _assert_actor_authorized_for_expense(db, expense, current_user.id)
     if not expense.pdf_object_key:
         raise HTTPException(
@@ -515,7 +517,9 @@ async def get_raw_extraction(
     result = await db.execute(select(Expense).where(Expense.id == expense_id))
     expense = result.scalar_one_or_none()
     if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found"
+        )
     await _assert_actor_authorized_for_expense(db, expense, current_user.id)
     if not expense.raw_extraction:
         raise HTTPException(
@@ -547,7 +551,9 @@ async def correct_line_items(
     )
     expense = result.scalar_one_or_none()
     if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found"
+        )
     await _assert_actor_authorized_for_expense(db, expense, current_user.id)
     if expense.status == ExpenseStatus.voided:
         raise HTTPException(
@@ -570,7 +576,10 @@ async def correct_line_items(
             detail="line_no values must be unique",
         )
     for li_check in payload.line_items:
-        if li_check.parent_line_no is not None and li_check.parent_line_no not in line_nos:
+        if (
+            li_check.parent_line_no is not None
+            and li_check.parent_line_no not in line_nos
+        ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"parent_line_no {li_check.parent_line_no} does not match any line in this payload",
@@ -692,7 +701,9 @@ async def confirm_expense(
     expense = result.scalar_one_or_none()
 
     if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found"
+        )
 
     await _assert_actor_authorized_for_expense(db, expense, current_user.id)
 
@@ -760,9 +771,7 @@ async def confirm_expense(
     if split_result is not None:
         lines = await _load_lines_with_assignments(db, expense_id)
         for li in lines:
-            allocation = split_result.line_allocations.get(
-                uuid.UUID(str(li.id)), {}
-            )
+            allocation = split_result.line_allocations.get(uuid.UUID(str(li.id)), {})
             existing_users: set[uuid.UUID] = set()
             for a in li.assignments:
                 user_id = uuid.UUID(str(a.user_id))
@@ -811,7 +820,9 @@ async def put_assignments(
     result = await db.execute(select(Expense).where(Expense.id == expense_id))
     expense = result.scalar_one_or_none()
     if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found"
+        )
     await _assert_actor_authorized_for_expense(db, expense, current_user.id)
     if expense.parse_status == ParseStatus.confirmed:
         raise HTTPException(
@@ -887,7 +898,9 @@ async def get_shares(
     result = await db.execute(select(Expense).where(Expense.id == expense_id))
     expense = result.scalar_one_or_none()
     if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found"
+        )
     await _assert_actor_authorized_for_expense(db, expense, current_user.id)
 
     shares, _ = await _resolve_shares(db, expense)
@@ -918,7 +931,9 @@ async def create_refund(
     )
     expense = result.scalar_one_or_none()
     if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found"
+        )
     await _assert_actor_authorized_for_expense(db, expense, current_user.id)
     if expense.status == ExpenseStatus.voided:
         raise HTTPException(
@@ -939,11 +954,7 @@ async def create_refund(
     # locked above, so concurrent duplicates serialize through this check).
     if payload.idempotency_key is not None:
         already = next(
-            (
-                li
-                for li in lines
-                if li.idempotency_key == payload.idempotency_key
-            ),
+            (li for li in lines if li.idempotency_key == payload.idempotency_key),
             None,
         )
         if already is not None:
@@ -982,9 +993,10 @@ async def create_refund(
     net_line_total = int(parent.total_minor)
     prior_refunds = 0
     for li in lines:
-        if li.parent_line_id is None or uuid.UUID(
-            str(li.parent_line_id)
-        ) != payload.parent_line_id:
+        if (
+            li.parent_line_id is None
+            or uuid.UUID(str(li.parent_line_id)) != payload.parent_line_id
+        ):
             continue
         if li.kind == LineItemKind.refund:
             prior_refunds += -int(li.total_minor)
@@ -1013,8 +1025,7 @@ async def create_refund(
         expense_id=expense.id,
         line_no=max(li.line_no for li in lines) + 1,
         kind=LineItemKind.refund,
-        description=payload.description
-        or f"Refund: {parent.description or 'item'}",
+        description=payload.description or f"Refund: {parent.description or 'item'}",
         quantity=1,
         unit_price_minor=-payload.amount_minor,
         total_minor=-payload.amount_minor,
@@ -1067,6 +1078,8 @@ async def get_expense(
     )
     expense = result.scalar_one_or_none()
     if expense is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found"
+        )
     await _assert_actor_authorized_for_expense(db, expense, current_user.id)
     return expense

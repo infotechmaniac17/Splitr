@@ -56,8 +56,18 @@ async def _worked_example_expense(
             "vendor": "Swiggy",
             "total_minor": 5300,
             "line_items": [
-                {"line_no": 1, "kind": "item", "description": "A items", "total_minor": 2000},
-                {"line_no": 2, "kind": "item", "description": "B items", "total_minor": 4000},
+                {
+                    "line_no": 1,
+                    "kind": "item",
+                    "description": "A items",
+                    "total_minor": 2000,
+                },
+                {
+                    "line_no": 2,
+                    "kind": "item",
+                    "description": "B items",
+                    "total_minor": 4000,
+                },
                 {
                     "line_no": 3,
                     "kind": "discount",
@@ -290,14 +300,16 @@ async def test_m2_pre_confirmation_refund_line(client: AsyncClient) -> None:
     )
     assert resp.status_code == 201, resp.text
     expense = resp.json()
-    item_line = next(
-        li for li in expense["line_items"] if li["kind"] == "item"
-    )
+    item_line = next(li for li in expense["line_items"] if li["kind"] == "item")
     resp2 = await client.put(
         f"{API}/expenses/{expense['id']}/assignments",
         json={
             "assignments": [
-                {"line_item_id": item_line["id"], "user_id": alice["id"], "weight": "2"},
+                {
+                    "line_item_id": item_line["id"],
+                    "user_id": alice["id"],
+                    "weight": "2",
+                },
                 {"line_item_id": item_line["id"], "user_id": bob["id"], "weight": "1"},
             ]
         },
@@ -505,9 +517,7 @@ async def test_m2_refund_idempotency_key_prevents_double_post(
     # Identical retry: no new refund line, no new ledger entry.
     resp2 = await client.post(f"{API}/expenses/{expense['id']}/refunds", json=body)
     assert resp2.status_code == 201
-    refund_lines = [
-        li for li in resp2.json()["line_items"] if li["kind"] == "refund"
-    ]
+    refund_lines = [li for li in resp2.json()["line_items"] if li["kind"] == "refund"]
     assert len(refund_lines) == 1
 
     resp3 = await client.get(f"{API}/groups/{group['id']}/balances")

@@ -89,9 +89,7 @@ def validate_extraction(invoice: ExtractedInvoice) -> ValidationResult:
     issues: list[ValidationIssue] = []
 
     if not invoice.line_items:
-        issues.append(
-            ValidationIssue("no_line_items", "No line items were extracted.")
-        )
+        issues.append(ValidationIssue("no_line_items", "No line items were extracted."))
 
     for li in invoice.line_items:
         if li.quantity <= 0:

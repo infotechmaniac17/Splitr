@@ -177,8 +177,7 @@ class LineItemCreate(BaseModel):
                 )
         elif self.total_minor < 0:
             raise ValueError(
-                f"{self.kind} line total_minor must be >= 0, "
-                f"got {self.total_minor}"
+                f"{self.kind} line total_minor must be >= 0, got {self.total_minor}"
             )
         if (
             self.unit_price_minor is not None
@@ -484,9 +483,7 @@ class SettlementCreate(BaseModel):
         # M5: self-settlement creates a ledger self-loop that never cancels and
         # would corrupt balance queries.
         if self.payer_id == self.payee_id:
-            raise ValueError(
-                "Settlement payer and payee cannot be the same user."
-            )
+            raise ValueError("Settlement payer and payee cannot be the same user.")
         return self
 
 

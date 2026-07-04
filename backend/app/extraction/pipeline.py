@@ -57,7 +57,9 @@ async def run_extraction_pipeline(
     validation: ValidationResult | None = None
 
     for attempt_no in range(1, MAX_ATTEMPTS + 1):
-        request = _build_request(pdf_source, detected_route, schema, vendor_hint, retry_context)
+        request = _build_request(
+            pdf_source, detected_route, schema, vendor_hint, retry_context
+        )
 
         result = await provider.extract(request)
 

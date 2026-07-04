@@ -55,7 +55,9 @@ class ScriptedProvider(ExtractionProvider):
     async def extract(self, request: ExtractionRequest) -> ExtractionResult:
         self.calls.append(request)
         if not self._responses:
-            return ExtractionResult(provider=self.name, raw=None, error="no more scripted responses")
+            return ExtractionResult(
+                provider=self.name, raw=None, error="no more scripted responses"
+            )
         raw = self._responses.pop(0)
         return ExtractionResult(provider=self.name, raw=raw)
 
@@ -69,7 +71,9 @@ class ErroringProvider(ExtractionProvider):
         return True
 
     async def extract(self, request: ExtractionRequest) -> ExtractionResult:
-        return ExtractionResult(provider=self.name, raw=None, error="simulated network failure")
+        return ExtractionResult(
+            provider=self.name, raw=None, error="simulated network failure"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +228,9 @@ async def test_malformed_json_schema_triggers_retry_then_needs_review() -> None:
 
 
 @pytest.mark.asyncio
-async def test_persist_pipeline_result_sets_parsed_and_writes_line_items(db_session) -> None:
+async def test_persist_pipeline_result_sets_parsed_and_writes_line_items(
+    db_session,
+) -> None:
     user = User(name="Alice", email="alice@example.com")
     db_session.add(user)
     await db_session.flush()
@@ -256,16 +262,22 @@ async def test_persist_pipeline_result_sets_parsed_and_writes_line_items(db_sess
     from sqlalchemy import select
 
     rows = (
-        await db_session.execute(
-            select(ExpenseLineItem).where(ExpenseLineItem.expense_id == expense.id)
+        (
+            await db_session.execute(
+                select(ExpenseLineItem).where(ExpenseLineItem.expense_id == expense.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(rows) == 4
     assert sum(int(r.total_minor) for r in rows) == 150700
 
 
 @pytest.mark.asyncio
-async def test_persist_pipeline_result_needs_review_does_not_overwrite_total(db_session) -> None:
+async def test_persist_pipeline_result_needs_review_does_not_overwrite_total(
+    db_session,
+) -> None:
     user = User(name="Bob", email="bob@example.com")
     db_session.add(user)
     await db_session.flush()

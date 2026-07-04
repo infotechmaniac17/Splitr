@@ -105,7 +105,9 @@ async def login(
     # ignored in that case -- `password_hash_to_check` is never a real
     # account's hash unless `user` is a genuine, password-having account.
     password_hash_to_check = (
-        str(user.password_hash) if user is not None and user.password_hash else DUMMY_PASSWORD_HASH
+        str(user.password_hash)
+        if user is not None and user.password_hash
+        else DUMMY_PASSWORD_HASH
     )
     password_ok = verify_password(payload.password, password_hash_to_check)
     if user is None or not user.password_hash or not password_ok:

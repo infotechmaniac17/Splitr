@@ -72,6 +72,7 @@ async def get_current_user(
         )
     return user
 
+
 # Type alias for the injectable extraction-enqueue hook (see
 # app.extraction.tasks.enqueue_extraction docstring).
 ExtractionEnqueuer = Callable[[UUID, bytes, str | None], Awaitable[None]]

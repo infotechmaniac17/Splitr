@@ -96,7 +96,9 @@ def downgrade() -> None:
 
     op.execute(sa.text("DROP TRIGGER IF EXISTS trg_expense_immutability ON expenses"))
     op.execute(sa.text("DROP FUNCTION IF EXISTS guard_expense_financial_immutability"))
-    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_ledger_append_only ON ledger_entries"))
+    op.execute(
+        sa.text("DROP TRIGGER IF EXISTS trg_ledger_append_only ON ledger_entries")
+    )
     op.execute(sa.text("DROP FUNCTION IF EXISTS guard_ledger_append_only"))
     op.execute(
         sa.text(

@@ -99,6 +99,36 @@ def test_rejects_non_positive_amount() -> None:
         raise AssertionError("expected ValueError for negative amount")
 
 
+def test_two_user_direct_debt_is_a_single_transaction() -> None:
+    """Named 2-user edge case: no netting possible, output == the one edge."""
+    a, b = uuid.uuid4(), uuid.uuid4()
+    result = simplify_group_debts([(a, b, 750)])
+    assert result == [(a, b, 750)]
+
+
+def test_all_zero_multiuser_cycle_yields_empty_output() -> None:
+    """
+    Named multi-user all-zero edge case: A->B->C->A each owing 100 forms a
+    closed cycle where every user nets to exactly 0, so simplification must
+    yield no suggested transactions at all (distinct from the 2-user
+    already-net-zero case above).
+    """
+    a, b, c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    result = simplify_group_debts([(a, b, 100), (b, c, 100), (c, a, 100)])
+    assert result == []
+
+
+def test_odd_remainder_cent_is_not_dropped_or_duplicated() -> None:
+    """
+    Named remainder-cent edge case: an odd 1-minor-unit debt between two
+    users has nowhere to round to -- it must appear whole in the output,
+    never dropped (0) or duplicated (2+ minor units).
+    """
+    a, b = uuid.uuid4(), uuid.uuid4()
+    result = simplify_group_debts([(a, b, 1)])
+    assert result == [(a, b, 1)]
+
+
 def test_no_self_payments_and_at_most_n_minus_1_transactions() -> None:
     users = [uuid.uuid4() for _ in range(5)]
     # A star of debts: users[1..4] each owe users[0] varying amounts.
@@ -120,7 +150,9 @@ def test_no_self_payments_and_at_most_n_minus_1_transactions() -> None:
     data=st.data(),
 )
 @settings(max_examples=200)
-def test_property_random_debt_graphs_reconcile(n_users: int, data: st.DataObject) -> None:
+def test_property_random_debt_graphs_reconcile(
+    n_users: int, data: st.DataObject
+) -> None:
     users = [uuid.uuid4() for _ in range(n_users)]
 
     n_edges = data.draw(st.integers(min_value=0, max_value=n_users * 3))
@@ -227,7 +259,9 @@ async def _make_chain_debt_group(
     bob = await _create_user(client, "Bob", f"bob-{uuid.uuid4().hex[:8]}@t.com")
     carol = await _create_user(client, "Carol", f"carol-{uuid.uuid4().hex[:8]}@t.com")
 
-    group = await _create_group(client, "Trip", alice["id"], simplify_debts=simplify_debts)
+    group = await _create_group(
+        client, "Trip", alice["id"], simplify_debts=simplify_debts
+    )
     await _add_member(client, group["id"], bob["id"])
     await _add_member(client, group["id"], carol["id"])
 
@@ -263,7 +297,9 @@ async def test_simplified_debts_endpoint_default_true_reduces_transactions(
 
     # Reconcile: net balance per user from simplified transactions must
     # match net balance per user from the raw (unsimplified) balances.
-    def _net(entries: list[dict], payer_key: str, payee_key: str, amount_key: str) -> dict:
+    def _net(
+        entries: list[dict], payer_key: str, payee_key: str, amount_key: str
+    ) -> dict:
         net: dict[str, int] = {}
         for e in entries:
             net[e[payer_key]] = net.get(e[payer_key], 0) - e[amount_key]
@@ -282,7 +318,9 @@ async def test_simplified_debts_endpoint_default_true_reduces_transactions(
 async def test_simplified_debts_endpoint_false_returns_raw_balances(
     client: AsyncClient,
 ) -> None:
-    alice, bob, carol, group = await _make_chain_debt_group(client, simplify_debts=False)
+    alice, bob, carol, group = await _make_chain_debt_group(
+        client, simplify_debts=False
+    )
 
     raw_resp = await client.get(f"{API}/groups/{group['id']}/balances")
     assert raw_resp.status_code == 200, raw_resp.text

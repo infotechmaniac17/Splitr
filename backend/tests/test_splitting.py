@@ -66,12 +66,8 @@ def cart_line(
         kind=kind,
         total_minor=total,
         allocation=allocation,
-        discount_scope=(
-            DiscountScope.cart if kind == LineItemKind.discount else None
-        ),
-        assignments=tuple(
-            (u, Fraction(w)) for u, w in (assignees or {}).items()
-        ),
+        discount_scope=(DiscountScope.cart if kind == LineItemKind.discount else None),
+        assignments=tuple((u, Fraction(w)) for u, w in (assignees or {}).items()),
     )
 
 
@@ -119,9 +115,7 @@ def test_manual_cart_allocation_uses_line_assignments() -> None:
     lines = [
         item(1, 1000, {A: 1}),
         item(2, 1000, {B: 1}),
-        cart_line(
-            3, LineItemKind.tip, 300, AllocationMethod.manual, {A: 2, B: 1}
-        ),
+        cart_line(3, LineItemKind.tip, 300, AllocationMethod.manual, {A: 2, B: 1}),
     ]
     result = compute_shares(lines, 2300)
     assert result.line_allocations[_lid(3)] == {A: 200, B: 100}
@@ -453,8 +447,7 @@ def test_property_random_carts_always_reconcile(cart) -> None:
     for line in lines:
         if line.line_id in result.line_allocations:
             assert (
-                sum(result.line_allocations[line.line_id].values())
-                == line.total_minor
+                sum(result.line_allocations[line.line_id].values()) == line.total_minor
             )
 
 
@@ -469,9 +462,7 @@ def test_property_single_line_any_weights_reconciles(
 ) -> None:
     """One line, arbitrary weights, positive or negative amount."""
     weights = {
-        uuid.UUID(int=i): Fraction(
-            data.draw(st.integers(min_value=1, max_value=1000))
-        )
+        uuid.UUID(int=i): Fraction(data.draw(st.integers(min_value=1, max_value=1000)))
         for i in range(n_users)
     }
     line = LineInput(

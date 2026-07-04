@@ -12,7 +12,9 @@ from pydantic import ValidationError
 from app.config import Settings
 
 
-def test_production_with_default_secret_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_production_with_default_secret_key_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # Explicitly force the class default -- CI sets a real SECRET_KEY env var
     # (to silence PyJWT's InsecureKeyLengthWarning in unrelated tests), which
     # would otherwise shadow the default this test needs to exercise.
@@ -26,7 +28,9 @@ def test_production_with_overridden_secret_key_is_fine() -> None:
     assert settings.SECRET_KEY == "a-real-random-secret"
 
 
-def test_development_with_default_secret_key_is_fine(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_development_with_default_secret_key_is_fine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # Dev default must still work out of the box -- only production is gated.
     monkeypatch.delenv("SECRET_KEY", raising=False)
     settings = Settings(APP_ENV="development")

@@ -91,6 +91,7 @@ class SettlementMethod(StrEnum):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _now_utc() -> datetime:
     return datetime.now(UTC)
 
@@ -164,9 +165,7 @@ class Group(Base):
     members: Mapped[list[GroupMember]] = relationship(
         "GroupMember", back_populates="group"
     )
-    expenses: Mapped[list[Expense]] = relationship(
-        "Expense", back_populates="group"
-    )
+    expenses: Mapped[list[Expense]] = relationship("Expense", back_populates="group")
 
 
 class GroupMember(Base):
@@ -462,6 +461,5 @@ def _guard_ledger_append_only(
     for obj in session.deleted:
         if isinstance(obj, LedgerEntry):
             raise RuntimeError(
-                "LedgerEntry rows cannot be deleted. "
-                "Ledger is append-only."
+                "LedgerEntry rows cannot be deleted. Ledger is append-only."
             )
