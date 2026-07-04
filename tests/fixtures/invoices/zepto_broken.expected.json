@@ -1,0 +1,26 @@
+{
+  "vendor": "Zepto",
+  "invoice_date": "2026-06-25",
+  "invoice_number": "ZPT-55021",
+  "currency": "INR",
+  "line_items": [
+    {
+      "line_no": 1,
+      "kind": "item",
+      "description": "Milk 1L",
+      "quantity": "2",
+      "unit_price_minor": 6000,
+      "total_minor": 12000
+    },
+    {
+      "line_no": 2,
+      "kind": "item",
+      "description": "Bread",
+      "quantity": "1",
+      "unit_price_minor": 4500,
+      "total_minor": 4500
+    }
+  ],
+  "invoice_total_minor": 19000,
+  "subtotal_minor": 16500
+}

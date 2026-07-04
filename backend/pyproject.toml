@@ -1,0 +1,103 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "splitr-backend"
+version = "0.1.0"
+description = "Splitr — item-level expense splitting backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.13.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "psycopg[binary]>=3.1.0",
+    "celery>=5.3.0",
+    "redis>=5.0.0",
+    "httpx>=0.27.0",
+    # M3 — PDF extraction pipeline (ARCHITECTURE.md §2.2)
+    "pdfplumber>=0.11.0",
+    "pypdfium2>=5.0.0",
+    "google-genai>=1.0.0",
+    # M4 — multipart form parsing for POST /expenses/upload (FastAPI's
+    # File()/Form() params require this at runtime).
+    "python-multipart>=0.0.9",
+    # Auth — password hashing (argon2id) and JWT access/refresh tokens.
+    "argon2-cffi>=23.1.0",
+    "pyjwt>=2.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
+    "hypothesis>=6.100.0",
+    "aiosqlite>=0.19.0",
+    # Used only to generate tests/fixtures/invoices/*.pdf — never a runtime dep.
+    "reportlab>=4.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+# E/W = pycodestyle, F = pyflakes, I = isort, UP = pyupgrade,
+# B = flake8-bugbear, SIM = flake8-simplify, TCH = flake8-type-checking
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "TCH"]
+ignore = [
+    "E501",   # line too long — formatter handles this
+    "B008",   # do not perform function calls in default arguments (FastAPI DI pattern)
+    "SIM108", # use ternary operator — sometimes reduces clarity
+    "TC002",  # third-party imports in TYPE_CHECKING — conflicts with FastAPI Depends pattern
+    "TC003",  # stdlib imports in TYPE_CHECKING — conflicts with FastAPI Depends pattern
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ---------------------------------------------------------------------------
+# Mypy — strict only on app/domain/; lenient elsewhere
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "app.domain.*"
+strict = true
+disallow_untyped_defs = true
+disallow_any_generics = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["alembic.*", "celery.*"]
+ignore_errors = true
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

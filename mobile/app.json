@@ -1,0 +1,67 @@
+{
+  "expo": {
+    "name": "Splitr",
+    "slug": "splitr-mobile",
+    "scheme": "splitr",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.splitr.mobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Splitr uses your camera to photograph receipts for expense extraction.",
+        "NSPhotoLibraryUsageDescription": "Splitr needs access to your photos so you can attach a receipt image."
+      }
+    },
+    "android": {
+      "package": "com.splitr.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-status-bar",
+      "expo-splash-screen",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Splitr uses your camera to photograph receipts for expense extraction."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Splitr needs access to your photos so you can attach a receipt image."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#2563EB"
+        }
+      ]
+    ],
+    "extra": {
+      "router": {},
+      "apiBaseUrl": "http://localhost:8000"
+    }
+  }
+}

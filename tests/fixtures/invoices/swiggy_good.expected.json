@@ -1,0 +1,50 @@
+{
+  "vendor": "Swiggy",
+  "invoice_date": "2026-06-20",
+  "invoice_number": "SWG-99182734",
+  "currency": "INR",
+  "line_items": [
+    {
+      "line_no": 1,
+      "kind": "item",
+      "description": "Butter Naan",
+      "quantity": "3",
+      "unit_price_minor": 4500,
+      "total_minor": 13500
+    },
+    {
+      "line_no": 2,
+      "kind": "item",
+      "description": "Paneer Tikka",
+      "quantity": "1",
+      "unit_price_minor": 24900,
+      "total_minor": 24900
+    },
+    {
+      "line_no": 3,
+      "kind": "packing_fee",
+      "description": "Packing Charges",
+      "quantity": "1",
+      "unit_price_minor": 2000,
+      "total_minor": 2000
+    },
+    {
+      "line_no": 4,
+      "kind": "platform_fee",
+      "description": "Platform Fee",
+      "quantity": "1",
+      "unit_price_minor": 600,
+      "total_minor": 600
+    },
+    {
+      "line_no": 5,
+      "kind": "discount",
+      "description": "Discount",
+      "quantity": "1",
+      "unit_price_minor": -5000,
+      "total_minor": -5000
+    }
+  ],
+  "invoice_total_minor": 36000,
+  "subtotal_minor": 38400
+}

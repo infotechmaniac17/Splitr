@@ -1,0 +1,10 @@
+Generic single-database configuration with an async engine.
+
+Run all alembic commands from the backend/ directory.
+
+Common commands:
+    alembic upgrade head               # apply all pending migrations
+    alembic downgrade -1               # roll back one revision
+    alembic revision --autogenerate -m "describe change"
+    alembic history --verbose          # show migration history
+    alembic current                    # show current revision

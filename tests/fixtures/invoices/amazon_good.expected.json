@@ -1,0 +1,42 @@
+{
+  "vendor": "Amazon",
+  "invoice_date": "2026-06-15",
+  "invoice_number": "AMZ-2026-0001842",
+  "currency": "INR",
+  "line_items": [
+    {
+      "line_no": 1,
+      "kind": "item",
+      "description": "USB-C Cable 1m",
+      "quantity": "2",
+      "unit_price_minor": 29900,
+      "total_minor": 59800
+    },
+    {
+      "line_no": 2,
+      "kind": "item",
+      "description": "Wireless Mouse",
+      "quantity": "1",
+      "unit_price_minor": 79900,
+      "total_minor": 79900
+    },
+    {
+      "line_no": 3,
+      "kind": "tax",
+      "description": "GST",
+      "quantity": "1",
+      "unit_price_minor": 7000,
+      "total_minor": 7000
+    },
+    {
+      "line_no": 4,
+      "kind": "delivery_fee",
+      "description": "Delivery Fee",
+      "quantity": "1",
+      "unit_price_minor": 4000,
+      "total_minor": 4000
+    }
+  ],
+  "invoice_total_minor": 150700,
+  "subtotal_minor": 139700
+}
