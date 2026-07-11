@@ -58,6 +58,7 @@ function ExpenseDetailContent({ expenseId }: { expenseId: string }) {
           expense={expense}
           members={members}
           onConfirmed={handleTransition}
+          onExpenseUpdated={handleTransition}
         />
       );
     case "confirmed":

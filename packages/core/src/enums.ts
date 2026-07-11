@@ -90,6 +90,34 @@ export const DiscountSource = {
 export type DiscountSource =
   (typeof DiscountSource)[keyof typeof DiscountSource];
 
+/**
+ * M6-M8 total-reconciliation ruling: how an expense's invoice expresses
+ * GST/tax. Mirrors backend/app/domain/models.py's GstMode 1:1.
+ */
+export const GstMode = {
+  none: "none",
+  invoice_exclusive: "invoice_exclusive",
+  invoice_inclusive: "invoice_inclusive",
+  item_level: "item_level",
+} as const;
+export type GstMode = (typeof GstMode)[keyof typeof GstMode];
+
+/**
+ * Recognized Indian GST component names. Mirrors backend/app/domain/
+ * models.py's TaxComponentName 1:1 -- note these wire values are UPPERCASE
+ * (unlike most other enums in this module), matching the backend's own
+ * deliberate deviation (see that class's doc comment).
+ */
+export const TaxComponentName = {
+  CGST: "CGST",
+  SGST: "SGST",
+  IGST: "IGST",
+  GST: "GST",
+  CESS: "CESS",
+} as const;
+export type TaxComponentName =
+  (typeof TaxComponentName)[keyof typeof TaxComponentName];
+
 /** Stable validation issue codes, API_CONTRACT.md §4. */
 export const ValidationIssueCode = {
   no_line_items: "no_line_items",

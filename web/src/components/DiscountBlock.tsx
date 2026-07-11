@@ -23,12 +23,10 @@ import { api, formatApiError } from "@/lib/api";
 export function DiscountBlock({
   expense,
   discountRecordedButInert,
-  frozenSharesLikely,
   onUpdated,
 }: {
   expense: ExpenseResponse;
   discountRecordedButInert: boolean;
-  frozenSharesLikely: boolean;
   onUpdated: (expense: ExpenseResponse) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -111,12 +109,12 @@ export function DiscountBlock({
     }
   }
 
-  if (frozenSharesLikely) {
+  if (expense.is_frozen_shares) {
     return (
       <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-400">
-        Discount editing isn&apos;t available for this expense (its shares look
-        like they were frozen at creation — quick manual entry). Recreate it
-        with itemized line items to use vendor discounts.
+        Discount editing isn&apos;t available for this expense (its shares are
+        frozen — the explicit-shares/equal-split flow never consumes a discount
+        snapshot). Recreate it with itemized line items to use vendor discounts.
       </div>
     );
   }

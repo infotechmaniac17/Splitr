@@ -477,6 +477,24 @@ export class SplitrApiClient {
     );
   }
 
+  /**
+   * M6-M8 total-reconciliation ruling, item 3: recompute the reconciled
+   * total (base item totals minus the effective discount, plus tax
+   * components for gst_mode='invoice_exclusive') from the expense's
+   * CURRENTLY PERSISTED line items / discount snapshot / tax components,
+   * and overwrite total_minor with it -- the ONLY sanctioned way
+   * total_minor changes on a draft expense. Draft expenses only (409
+   * confirmed/voided, 422 frozen shares) -- see
+   * backend/app/api/expenses.py:accept_computed_total.
+   */
+  acceptComputedTotal(expenseId: string): Promise<ExpenseResponse> {
+    return this.request(
+      "POST",
+      `/expenses/${expenseId}/accept-computed-total`,
+      expenseResponseSchema,
+    );
+  }
+
   // -- Settlements ---------------------------------------------------------
 
   createSettlement(payload: SettlementCreate): Promise<SettlementResponse> {

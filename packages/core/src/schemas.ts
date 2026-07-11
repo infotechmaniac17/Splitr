@@ -18,10 +18,12 @@ import {
   ExpenseSource,
   ExpenseStatus,
   GroupMemberRole,
+  GstMode,
   LedgerEntryType,
   LineItemKind,
   ParseStatus,
   SettlementMethod,
+  TaxComponentName,
   ValidationIssueCode,
 } from "./enums";
 
@@ -179,6 +181,20 @@ export const lineItemCreateSchema = z.object({
 });
 export type LineItemCreate = z.input<typeof lineItemCreateSchema>;
 
+// M6-M8 total-reconciliation ruling, item 6: one user's CURRENT assignment
+// on a line item, embedded read-only inside LineItemResponse.assignments --
+// see backend/app/api/schemas.py's LineItemAssignmentInfo. Deliberately
+// id-less/share_minor-less (a lightweight "who's on this line" projection
+// for the UI, not a replacement for GET /expenses/{id}/shares or the
+// allocation-preview endpoint, which remain the source of truth for money).
+export const lineItemAssignmentInfoSchema = z.object({
+  user_id: uuid,
+  weight: z.string(), // Decimal on the wire, serialized as a string
+});
+export type LineItemAssignmentInfo = z.infer<
+  typeof lineItemAssignmentInfoSchema
+>;
+
 export const lineItemResponseSchema = z.object({
   id: uuid,
   expense_id: uuid,
@@ -192,6 +208,18 @@ export const lineItemResponseSchema = z.object({
   discount_scope: z.nativeEnum(DiscountScope).nullable().optional(),
   parent_line_id: uuid.nullable().optional(),
   bundle_group_id: uuid.nullable().optional(),
+  // M6 item 4 (API GAPS follow-up, M6-M8 item 5): per-item GST detail --
+  // only meaningful (non-null) when the parent expense's gst_mode ==
+  // 'item_level'; null on every other line. `gst_rate` is display-only
+  // (Decimal serialized as a string, same convention as `quantity` above).
+  gst_rate: decimalDisplayString.nullable().optional(),
+  gst_amount_minor: z.number().int().nullable().optional(),
+  // M6-M8 total-reconciliation ruling, item 6: current assignments on this
+  // line, populated from the same eager-loaded relationship every
+  // ExpenseResponse route already loads -- always present (see the
+  // response-schema `.default()` note on allocationPreviewResponseSchema
+  // above for why this isn't `.default()`).
+  assignments: z.array(lineItemAssignmentInfoSchema),
 });
 export type LineItemResponse = z.infer<typeof lineItemResponseSchema>;
 
@@ -254,6 +282,12 @@ export type MemberBreakdownResponse = z.infer<
 export const allocationProblemSchema = z.object({
   code: z.string(),
   message: z.string(),
+  // M6-M8 total-reconciliation ruling, API GAPS item 8: optional structured
+  // detail for problems about a SET of lines -- currently only populated
+  // for code='unassigned_lines'. Every other existing code leaves both
+  // null/undefined.
+  count: z.number().int().nullable().optional(),
+  line_ids: z.array(uuid).nullable().optional(),
 });
 export type AllocationProblem = z.infer<typeof allocationProblemSchema>;
 
@@ -289,6 +323,17 @@ export const expenseDiscountPatchSchema = z.object({
   discount_threshold_minor: z.number().int().default(0),
 });
 export type ExpenseDiscountPatch = z.input<typeof expenseDiscountPatchSchema>;
+
+// M6 item 4 (API GAPS follow-up, M6-M8 item 5): one persisted
+// expense_tax_components row (CGST/SGST/IGST/GST/CESS), embedded in
+// ExpenseResponse.tax_components. `rate` is display-only (Decimal
+// serialized as a string, same convention as other Decimal fields here).
+export const taxComponentResponseSchema = z.object({
+  name: z.nativeEnum(TaxComponentName),
+  rate: decimalDisplayString.nullable(),
+  amount_minor: z.number().int(),
+});
+export type TaxComponentResponse = z.infer<typeof taxComponentResponseSchema>;
 
 export const refundCreateSchema = z.object({
   parent_line_id: uuid,
@@ -350,6 +395,12 @@ export const expenseResponseSchema = z.object({
   // Always present (see the response-schema `.default()` note on
   // allocationPreviewResponseSchema above for why this isn't `.default()`).
   needs_review: z.boolean(),
+  // M6-M8 total-reconciliation ruling -- API GAPS items 5 and 7. Always set
+  // (backend defaults to 'none'/[]/false respectively, but always
+  // serializes -- see the response-schema `.default()` note above).
+  gst_mode: z.nativeEnum(GstMode),
+  tax_components: z.array(taxComponentResponseSchema),
+  is_frozen_shares: z.boolean(),
 });
 export type ExpenseResponse = z.infer<typeof expenseResponseSchema>;
 

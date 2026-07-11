@@ -1,6 +1,10 @@
 "use client";
 
-import { lineItemKindLabels, type LineItemResponse } from "@splitr/core";
+import {
+  GstMode,
+  lineItemKindLabels,
+  type LineItemResponse,
+} from "@splitr/core";
 import { Avatar } from "@/components/Avatar";
 import { Money } from "@/components/Money";
 import type { RememberedMember } from "@/lib/local-store";
@@ -8,17 +12,13 @@ import type { RememberedMember } from "@/lib/local-store";
 /**
  * Item-level line table for the invoice review & assignment screen.
  * Column order mirrors the PDF: [checkbox] | item | qty | unit price |
- * amount | gst rate.
+ * amount | [gst rate] | assign to.
  *
- * GST-RATE COLUMN GAP: backend/app/api/schemas.py's LineItemResponse never
- * serializes `gst_rate`/`gst_amount_minor` (they exist as ORM columns --
- * see app/domain/models.py -- but are not on the Pydantic response model),
- * and ExpenseResponse never serializes `gst_mode` either, so there is no
- * way for this client to know whether an expense is gst_mode='item_level'
- * or to read a line's rate at all. The gst-rate column is therefore
- * omitted entirely rather than guessed at or computed client-side -- see
- * the final report for the exact backend fields that would need to be
- * added.
+ * The GST-rate column only renders when `gstMode === 'item_level'`
+ * (backend/app/domain/models.py's GstMode) -- every other line's
+ * gst_rate/gst_amount_minor is null by construction (see
+ * LineItemResponse's doc comment in packages/core/src/schemas.ts), so
+ * showing the column for other modes would just be a column of dashes.
  */
 export function ItemsTable({
   lines,
@@ -31,6 +31,7 @@ export function ItemsTable({
   onToggleChecked,
   currency,
   rowRefs,
+  gstMode,
 }: {
   lines: LineItemResponse[];
   members: RememberedMember[];
@@ -42,7 +43,9 @@ export function ItemsTable({
   onToggleChecked: (lineId: string) => void;
   currency: string;
   rowRefs?: React.MutableRefObject<Map<string, HTMLTableRowElement>>;
+  gstMode: string;
 }) {
+  const showGstColumn = gstMode === GstMode.item_level;
   if (lines.length === 0) {
     return (
       <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-400">
@@ -61,6 +64,7 @@ export function ItemsTable({
             <th className="px-2 py-2 text-right">Qty</th>
             <th className="px-2 py-2 text-right">Unit price</th>
             <th className="px-2 py-2 text-right">Amount</th>
+            {showGstColumn && <th className="px-2 py-2 text-right">GST</th>}
             <th className="px-2 py-2">Assign to</th>
           </tr>
         </thead>
@@ -123,6 +127,26 @@ export function ItemsTable({
                     className={`font-semibold ${isRefund ? "text-red-600" : ""}`}
                   />
                 </td>
+                {showGstColumn && (
+                  <td className="whitespace-nowrap px-2 py-2 text-right text-gray-500">
+                    {line.gst_rate != null ? (
+                      <>
+                        {line.gst_rate}%
+                        {line.gst_amount_minor != null && (
+                          <>
+                            {" · "}
+                            <Money
+                              minor={line.gst_amount_minor}
+                              currency={currency}
+                            />
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                )}
                 <td className="px-2 py-2">
                   <div className="flex flex-wrap items-center gap-2">
                     {members.map((m) => (
