@@ -22,10 +22,12 @@ from app.domain.models import (
     ExpenseSource,
     ExpenseStatus,
     GroupMemberRole,
+    GstMode,
     LedgerEntryType,
     LineItemKind,
     ParseStatus,
     SettlementMethod,
+    TaxComponentName,
 )
 from app.extraction.vendor_detect import normalize_vendor_text
 
@@ -208,6 +210,35 @@ class LineItemCreate(BaseModel):
         return self
 
 
+class LineItemAssignmentInfo(BaseModel):
+    """
+    M6-M8 total-reconciliation ruling, item 6: one user's CURRENT assignment
+    on a line item, embedded read-only inside LineItemResponse.assignments
+    so the assignment-UI can render "who's on this line" from the same
+    GET /expenses/{id} response that already carries the line items --
+    no extra round-trip, and no N+1 query (populated from the SAME
+    `.assignments` relationship _load_lines_with_assignments already
+    eager-loads via selectinload).
+
+    Deliberately id-less (no ItemAssignment.id / share_minor here) -- this
+    is a lightweight "current assignment" projection for the UI, not a
+    replacement for GET /expenses/{id}/shares or the allocation-preview
+    endpoint, which remain the source of truth for computed money.
+    """
+
+    user_id: uuid.UUID
+    # Numeric(10,4) on the wire, serialized as a string -- same convention
+    # as LineItemResponse.quantity below, so no IEEE-754 float enters a
+    # money-adjacent field.
+    weight: Decimal
+
+    model_config = {"from_attributes": True}
+
+    @field_serializer("weight")
+    def serialize_weight(self, value: Decimal) -> str:
+        return str(value)
+
+
 class LineItemResponse(BaseModel):
     id: uuid.UUID
     expense_id: uuid.UUID
@@ -227,12 +258,28 @@ class LineItemResponse(BaseModel):
     discount_scope: DiscountScope | None = None
     parent_line_id: uuid.UUID | None = None
     bundle_group_id: uuid.UUID | None = None
+    # M6 item 4 (API GAPS follow-up, M6-M8 item 5): per-item GST detail --
+    # only meaningful (non-NULL) when the parent expense's gst_mode ==
+    # 'item_level'; NULL on every other line, matching the DB columns
+    # exactly (see app.domain.models.ExpenseLineItem.gst_rate/
+    # gst_amount_minor).
+    gst_rate: Decimal | None = None
+    gst_amount_minor: int | None = None
+    # M6-M8 total-reconciliation ruling, item 6: current assignments on this
+    # line (see LineItemAssignmentInfo above). Populated from the SAME
+    # eager-loaded `.assignments` relationship every ExpenseResponse route
+    # already loads -- never a separate query.
+    assignments: list[LineItemAssignmentInfo] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
     @field_serializer("quantity")
     def serialize_quantity(self, value: Decimal) -> str:
         return str(value)
+
+    @field_serializer("gst_rate")
+    def serialize_gst_rate(self, value: Decimal | None) -> str | None:
+        return str(value) if value is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -303,10 +350,18 @@ class AllocationProblem(BaseModel):
     One reason a DRAFT expense's allocation could not be (fully) computed,
     or an informational note about it -- never a 500; see
     GET /expenses/{id}/allocation-preview.
+
+    `count` / `line_ids` (M6-M8 total-reconciliation ruling, API GAPS item
+    8): optional structured detail for problems about a SET of lines --
+    currently only `unassigned_lines` populates them. Every other existing
+    code (`needs_review`, `discount_recorded_but_inert`, `split_error`)
+    leaves both None, unchanged from before this field was added.
     """
 
     code: str
     message: str
+    count: int | None = None
+    line_ids: list[uuid.UUID] | None = None
 
 
 class AllocationPreviewResponse(BaseModel):
@@ -334,6 +389,25 @@ class RefundCreate(BaseModel):
     # Optional client-supplied key; a retried request with the same key
     # returns the existing state instead of double-posting the refund.
     idempotency_key: str | None = Field(default=None, max_length=255)
+
+
+class TaxComponentResponse(BaseModel):
+    """
+    M6 item 4 (API GAPS follow-up, M6-M8 item 5): one persisted
+    expense_tax_components row (CGST/SGST/IGST/GST/CESS), embedded in
+    ExpenseResponse.tax_components. Mirrors app.domain.models.
+    ExpenseTaxComponent 1:1.
+    """
+
+    name: TaxComponentName
+    rate: Decimal | None
+    amount_minor: int
+
+    model_config = {"from_attributes": True}
+
+    @field_serializer("rate")
+    def serialize_rate(self, value: Decimal | None) -> str | None:
+        return str(value) if value is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +570,27 @@ class ExpenseResponse(BaseModel):
         "(app/domain/gst.py) fail to reconcile against the CURRENTLY "
         "persisted line items / tax components. Independent of "
         "parse_status. Confirmation is blocked while this is true.",
+    )
+    # M6-M8 total-reconciliation ruling -- API GAPS items 5 and 7.
+    gst_mode: GstMode = Field(
+        default=GstMode.none,
+        description="How this invoice expresses GST -- see "
+        "app.domain.models.GstMode. Always set (defaults to 'none').",
+    )
+    tax_components: list[TaxComponentResponse] = Field(
+        default_factory=list,
+        description="Persisted expense_tax_components rows (CGST/SGST/"
+        "IGST/GST/CESS), if any.",
+    )
+    is_frozen_shares: bool = Field(
+        default=False,
+        description="True iff this expense's item_assignments are all "
+        "frozen (the M1 explicit-shares/equal-split flow, which never "
+        "runs compute_allocation) -- the SAME predicate "
+        "app.api.expenses._resolve_allocation, patch_expense_discount, "
+        "and accept_computed_total use for their 422 guards (see "
+        "app.domain.splitting.is_frozen_shares). False for an item-level "
+        "(M2) draft expense with pending, unfrozen assignments.",
     )
 
     model_config = {"from_attributes": True}

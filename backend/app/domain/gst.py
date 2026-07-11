@@ -149,7 +149,10 @@ def check_gst_invariants(
     to catch.
 
     Invariants (exact to the paisa, ±TOLERANCE_MINOR):
-      - none:              nothing to check.
+      - none:              nothing to check UNLESS a discount is actually in
+                           play (discount_amount_minor > 0), in which case
+                           item_totals - discount == invoice_total (see
+                           `total_mismatch_with_discount` below).
       - invoice_exclusive: item_totals - discount + Σ(tax components)
                            == invoice_total
       - invoice_inclusive: item_totals - discount == invoice_total;
@@ -161,14 +164,76 @@ def check_gst_invariants(
                            per-item rates but never printed a components
                            summary line (or vice versa) has nothing to
                            reconcile against, so the check is skipped
-                           rather than manufacturing a false positive.
+                           rather than manufacturing a false positive. ALSO,
+                           same as 'none': item_totals - discount ==
+                           invoice_total whenever discount_amount_minor > 0
+                           (`total_mismatch_with_discount`).
+
+    M6-M8 total-reconciliation ruling (b) -- `total_mismatch_with_discount`
+    (gst_mode in {'none', 'item_level'} only):
+
+    The bug this closes: `expense.total_minor` is ALWAYS user-declared
+    (invariant per the ruling -- it is never silently re-derived from a
+    matched vendor rule or a manual discount). For gst_mode='none' this
+    function previously returned `ok=True` unconditionally, and for
+    'item_level' it only ever compared line-level GST to tax components,
+    never the discount against the declared total. So an expense whose
+    total_minor was declared GROSS (sum of items, no discount subtracted)
+    could pass this check, then acquire an effective discount snapshot
+    (manual, vendor_rule -- app.domain.vendor_discount) and die at
+    app.domain.ledger.post_expense_to_ledger's last-resort tripwire
+    ("Share sum ... does not equal expense total ...") instead of a named,
+    actionable validator issue.
+
+    Scoping decision (why `discount_amount_minor > 0`, not merely "a
+    discount source is present"): this invariant is gated STRICTLY on
+    whether a discount is actually about to subtract real money --
+    `discount_amount_minor` here is always the EFFECTIVE, threshold-
+    resolved amount (see app.domain.splitting.resolve_discount_amount's
+    docstring, OQ-2) -- 0 both when there is no discount snapshot/line at
+    all AND when one exists but is below its threshold (inert). Gating on
+    that single boolean, rather than "a discount_source column is set",
+    is deliberate and was checked against every existing legal flow that
+    predates this invariant:
+      - Pure M1 explicit-shares/equal-split expenses (no line items, or
+        line items that don't sum to total_minor by design -- shares are
+        frozen directly, never fed through this check at all in practice,
+        but even if they were: no discount is ever attached to that flow,
+        so discount_amount_minor is always 0 there -- see
+        app.api.expenses._resolve_allocation's frozen-shares guard).
+      - Manual expenses with NO line_items (a single synthetic
+        "whole expense" line covering total_minor exactly) and no
+        discount: item_totals == total_minor already, discount_amount_minor
+        is 0 -- check is skipped, byte-identical to pre-existing behaviour.
+      - An expense with a discount snapshot that is below its threshold
+        (inert): discount_amount_minor is 0 by resolve_discount_amount's
+        own contract -- this invariant is correctly SKIPPED (nothing was
+        actually deducted, so there is nothing to reconcile against; see
+        `discount_recorded_but_inert` in app.domain.splitting, the existing
+        mechanism for surfacing that state).
+    Only once a discount will ACTUALLY subtract money (discount_amount_minor
+    > 0) does the declared total owe an explanation for where that money
+    went -- exactly the repro this ruling fixes.
 
     Never adjusts/corrects any figure -- only reports issues.
     """
     issues: list[GstIssue] = []
 
     if gst_mode == GstMode.none:
-        return GstCheckResult(ok=True, issues=[])
+        if discount_amount_minor > 0:
+            expected = item_totals_minor - discount_amount_minor
+            if abs(expected - invoice_total_minor) > TOLERANCE_MINOR:
+                issues.append(
+                    GstIssue(
+                        "total_mismatch_with_discount",
+                        f"gst_mode='none': item totals ({item_totals_minor}) "
+                        f"- discount ({discount_amount_minor}) = {expected} "
+                        "(the reconciled total), but the declared expense "
+                        f"total is {invoice_total_minor} -- update total to "
+                        f"{expected}.",
+                    )
+                )
+        return GstCheckResult(ok=not issues, issues=issues)
 
     tax_component_sum = sum(tax_component_amounts_minor)
 
@@ -217,19 +282,35 @@ def check_gst_invariants(
                     "extraction and needs human review.",
                 )
             )
-    elif gst_mode == GstMode.item_level and has_line_gst_data and has_component_data:
-        line_sum = sum(line_gst_amounts_minor)
-        if abs(line_sum - tax_component_sum) > TOLERANCE_MINOR:
-            issues.append(
-                GstIssue(
-                    "gst_item_level_mismatch",
-                    f"item_level: sum of line-item gst_amount_minor "
-                    f"({line_sum}) != sum of tax component amounts "
-                    f"({tax_component_sum})",
+    elif gst_mode == GstMode.item_level:
+        if discount_amount_minor > 0:
+            expected_total = item_totals_minor - discount_amount_minor
+            if abs(expected_total - invoice_total_minor) > TOLERANCE_MINOR:
+                issues.append(
+                    GstIssue(
+                        "total_mismatch_with_discount",
+                        f"item_level: item totals ({item_totals_minor}) - "
+                        f"discount ({discount_amount_minor}) = "
+                        f"{expected_total} (the reconciled total), but the "
+                        f"declared expense total is {invoice_total_minor} "
+                        f"-- update total to {expected_total}.",
+                    )
                 )
-            )
-    # item_level with only one side populated: intentionally skipped, see
-    # docstring above.
+        if has_line_gst_data and has_component_data:
+            line_sum = sum(line_gst_amounts_minor)
+            if abs(line_sum - tax_component_sum) > TOLERANCE_MINOR:
+                issues.append(
+                    GstIssue(
+                        "gst_item_level_mismatch",
+                        f"item_level: sum of line-item gst_amount_minor "
+                        f"({line_sum}) != sum of tax component amounts "
+                        f"({tax_component_sum})",
+                    )
+                )
+        # item_level with only one side populated for the line/component
+        # check: intentionally skipped, see docstring above -- unaffected
+        # by the total_mismatch_with_discount check above, which is
+        # independent of has_line_gst_data/has_component_data.
 
     return GstCheckResult(ok=not issues, issues=issues)
 

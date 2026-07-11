@@ -535,6 +535,30 @@ class Expense(Base):
         ),
     )
 
+    @property
+    def is_frozen_shares(self) -> bool:
+        """
+        M6-M8 total-reconciliation ruling (item 7): True iff this expense's
+        item_assignments are all frozen (the M1 explicit-shares/equal-split
+        flow). Delegates to app.domain.splitting.is_frozen_shares -- the
+        SAME predicate app.api.expenses._resolve_allocation,
+        patch_expense_discount, and accept_computed_total use for their 422
+        guards, so this API-visible flag can never disagree with them.
+
+        Requires `self.line_items` (and each line's `.assignments`) to
+        already be eagerly loaded (selectinload) by the caller -- accessing
+        this property on a lazy, un-loaded relationship inside an async
+        context raises MissingGreenlet, by design (no implicit N+1 lazy
+        load is ever triggered by serializing an ExpenseResponse).
+
+        Deferred import: app.domain.splitting imports app.domain.models
+        (for its enums), so importing it at module scope here would be
+        circular.
+        """
+        from app.domain.splitting import is_frozen_shares as _is_frozen_shares
+
+        return _is_frozen_shares(self.line_items)
+
     # Relationships
     group: Mapped[Group | None] = relationship("Group", back_populates="expenses")
     paid_by_user: Mapped[User] = relationship(

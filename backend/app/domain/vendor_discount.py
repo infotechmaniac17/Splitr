@@ -64,14 +64,17 @@ from typing import TYPE_CHECKING
 from sqlalchemy import ColumnElement, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.gst import check_gst_invariants
 from app.domain.models import (
     DiscountSource,
     DiscountType,
     Expense,
+    GstMode,
     ParseStatus,
     VendorDiscountRule,
 )
 from app.domain.rounding import percent_of_minor
+from app.domain.splitting import discount_spec_from_expense, resolve_discount_amount
 from app.extraction.vendor_detect import normalize_vendor_text
 
 if TYPE_CHECKING:
@@ -256,6 +259,58 @@ async def apply_vendor_discount_snapshot(
     expense.discount_value_minor = rule.discount_value_minor
     expense.discount_percent = rule.discount_percent
     expense.discount_threshold_minor = rule.min_order_total_minor
+
+    # M6-M8 total-reconciliation ruling (b), item 2: total_minor is ALWAYS
+    # user-declared, never rule-derived -- a rule that just matched can
+    # silently de-reconcile the expense's declared total (see
+    # app.domain.gst.check_gst_invariants' total_mismatch_with_discount
+    # invariant). Flag needs_review=True immediately at snapshot time (the
+    # draft-level UX flag) so a mismatch surfaces at creation/re-extraction,
+    # not only at confirm.
+    #
+    # Scoped to gst_mode in ('none', 'item_level') -- the two modes that
+    # invariant covers -- and checked ONLY against `effective_subtotal`
+    # (this function's own already-computed fresh base subtotal); no tax-
+    # component data is loaded here (this is a pure snapshot-mutation
+    # function, no line-item/tax-component query), so invoice_exclusive /
+    # invoice_inclusive reconciliation is intentionally left to
+    # app.api.expenses.confirm_expense's fuller recompute (which DOES load
+    # tax components).
+    #
+    # ONLY EVER SETS needs_review=True here, NEVER clears it: this function
+    # cannot see the expense's full state (e.g. an unrelated pre-existing
+    # needs_review reason), so clearing is left to a caller with full
+    # context that recomputes the COMPLETE issue set before deciding --
+    # see app.api.expenses.patch_expense_discount and
+    # accept_computed_total, both of which call _recompute_gst_review_issues
+    # and set (never blind-clear) needs_review from that authoritative
+    # recompute.
+    #
+    # Precision caveat (finance-reviewer LOW): `effective_subtotal` here is
+    # subtotal_override_minor or expense.subtotal_minor -- NOT the
+    # authoritative base_item_totals_minor over persisted lines that
+    # confirm_expense/_recompute_gst_review_issues use. If subtotal_minor
+    # ever drifts from the true line sum (e.g. a later line-item correction
+    # that skips refreshing it), this flag can be momentarily wrong in
+    # either direction. UX-only imprecision: confirm's unconditional
+    # recompute against persisted lines remains the money-safety gate.
+    if expense.gst_mode in (GstMode.none, GstMode.item_level):
+        applied, _inert = resolve_discount_amount(
+            discount_spec_from_expense(expense), int(effective_subtotal)
+        )
+        if applied > 0:
+            check = check_gst_invariants(
+                gst_mode=expense.gst_mode,
+                item_totals_minor=int(effective_subtotal),
+                discount_amount_minor=applied,
+                tax_component_amounts_minor=[],
+                invoice_total_minor=int(expense.total_minor),
+                line_gst_amounts_minor=[],
+                has_line_gst_data=False,
+                has_component_data=False,
+            )
+            if not check.ok:
+                expense.needs_review = True
 
 
 def apply_extracted_discount_snapshot(

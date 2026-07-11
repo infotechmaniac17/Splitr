@@ -132,6 +132,40 @@ class SplitResult:
     )
 
 
+def is_frozen_shares(line_items: Any) -> bool:
+    """
+    True iff EVERY item_assignments row across `line_items` (an iterable of
+    ORM ExpenseLineItem rows with `.assignments` loaded, or any duck-typed
+    equivalent) already carries a frozen `share_minor` -- the M1 explicit-
+    shares/equal-split flow, which freezes shares at expense-create time and
+    never runs compute_shares/compute_allocation. False if there are no
+    assignments at all yet (nothing frozen), or at least one assignment
+    still has share_minor=None (the M2 item-level flow, pending
+    confirmation).
+
+    SINGLE shared predicate (M6-M8 total-reconciliation ruling, item 7):
+    app.api.expenses._resolve_allocation's frozen-path branch,
+    patch_expense_discount's 422 guard, accept_computed_total's 422 guard,
+    and Expense.is_frozen_shares (the API-visible flag on ExpenseResponse)
+    all call this exact function so they can never disagree about which
+    expenses are "frozen-shares" ones.
+
+    Mixed state (finance-reviewer LOW): POST /expenses/{id}/assignments/bulk
+    replaces assignments per targeted line with share_minor=None while
+    leaving other lines' frozen rows untouched, so an expense CAN hold a
+    mix of frozen and unfrozen assignments. This predicate is deliberately
+    all-or-nothing: any unfrozen assignment makes it False, and every
+    caller then falls through to the real compute_allocation path (which
+    recomputes ALL shares at confirm, previously-frozen rows included) --
+    correct behaviour, stated here because the binary semantics is
+    load-bearing for every guard listed above.
+    """
+    all_assignments = [a for li in line_items for a in li.assignments]
+    return bool(all_assignments) and all(
+        a.share_minor is not None for a in all_assignments
+    )
+
+
 def is_item_level(line: LineInput) -> bool:
     """§4 step 1: lines split directly among assignees."""
     return (
