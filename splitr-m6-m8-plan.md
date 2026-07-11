@@ -16,6 +16,13 @@
 2. **Everything persists in Postgres.** No config in code constants, no in-memory rule tables, no client-computed money. Vendor rules, discount metadata, GST components, assignments, allocation results — all live in the DB via Alembic migrations, with constraints enforced at the DB level (CHECK + triggers), matching the M1–M5 philosophy.
 3. `compute_shares` remains the **single** money function. Its existing tests must pass unchanged for the no-discount/no-GST path (regression proof that old confirmed expenses allocate identically).
 
+**Remaining sequence (revised 2026-07-11, after item 5 merged): 5 → 7+8 → 6 → 9.**
+Items 7+8 (frontend assignment UI + supporting endpoints) come BEFORE item 6
+(refresh-token revocation + ghost implementation). Rationale for the record:
+item 6 has no UI dependency and blocks nothing; items 7+8 need only item 5's
+allocation-preview plus items 3/4's data, all now live. Visible payoff sooner,
+and 7+8's e2e testing exercises item 5's endpoint surface while it's fresh.
+
 ---
 
 ## Item 1 — DB trigger guard on `item_assignments` (do FIRST)
