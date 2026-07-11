@@ -4,7 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, type ExpenseResponse } from "@splitr/core";
 import { api, formatApiError } from "@/lib/api";
 
-const TERMINAL_STATUSES = new Set(["parsed", "needs_review", "confirmed", "failed"]);
+const TERMINAL_STATUSES = new Set([
+  "parsed",
+  "needs_review",
+  "confirmed",
+  "failed",
+]);
 
 /**
  * Polls GET /expenses/{id} until parse_status leaves the async "queued"
@@ -12,8 +17,13 @@ const TERMINAL_STATUSES = new Set(["parsed", "needs_review", "confirmed", "faile
  * since extraction typically takes 2-20s (ARCHITECTURE.md §2.1) — no need
  * to hammer the API every 500ms for that whole window.
  */
-export function useExpensePolling(expenseId: string | null, initial?: ExpenseResponse) {
-  const [expense, setExpense] = useState<ExpenseResponse | null>(initial ?? null);
+export function useExpensePolling(
+  expenseId: string | null,
+  initial?: ExpenseResponse,
+) {
+  const [expense, setExpense] = useState<ExpenseResponse | null>(
+    initial ?? null,
+  );
   const [error, setError] = useState<string | null>(null);
   const attempt = useRef(0);
 
@@ -35,7 +45,10 @@ export function useExpensePolling(expenseId: string | null, initial?: ExpenseRes
         // 403 (not authorized for this expense) and 401 (session gone, and
         // the api client's own silent-refresh-and-retry already failed) are
         // permanent for this poll loop -- retrying on a timer won't help.
-        if (err instanceof ApiError && (err.status === 403 || err.status === 401)) {
+        if (
+          err instanceof ApiError &&
+          (err.status === 403 || err.status === 401)
+        ) {
           return;
         }
       }

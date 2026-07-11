@@ -46,7 +46,9 @@ export function UploadDropzone({
       <p className="font-medium text-gray-700">
         Drag & drop an invoice PDF here
       </p>
-      <p className="text-sm text-gray-400">or tap to browse (Amazon, Swiggy, Zomato…)</p>
+      <p className="text-sm text-gray-400">
+        or tap to browse (Amazon, Swiggy, Zomato…)
+      </p>
       <input
         ref={inputRef}
         type="file"

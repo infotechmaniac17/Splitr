@@ -12,19 +12,24 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_serializer, model_validator
 
 from app.domain.models import (
     AllocationMethod,
     DiscountScope,
+    DiscountSource,
+    DiscountType,
     ExpenseSource,
     ExpenseStatus,
     GroupMemberRole,
+    GstMode,
     LedgerEntryType,
     LineItemKind,
     ParseStatus,
     SettlementMethod,
+    TaxComponentName,
 )
+from app.extraction.vendor_detect import normalize_vendor_text
 
 # ---------------------------------------------------------------------------
 # Users
@@ -143,6 +148,23 @@ class GroupMemberResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class GroupMemberInfo(BaseModel):
+    """One row of GET /groups/{group_id}/members -- membership + a slim
+    profile projection (name/avatar only, matching UserPublicResponse) so
+    the roster can be rendered without a second round-trip per member."""
+
+    user_id: uuid.UUID
+    name: str
+    avatar_url: str | None
+    role: GroupMemberRole
+    joined_at: datetime
+
+
+class GroupMembersResponse(BaseModel):
+    group_id: uuid.UUID
+    members: list[GroupMemberInfo]
+
+
 # ---------------------------------------------------------------------------
 # Line items
 # ---------------------------------------------------------------------------
@@ -188,21 +210,76 @@ class LineItemCreate(BaseModel):
         return self
 
 
+class LineItemAssignmentInfo(BaseModel):
+    """
+    M6-M8 total-reconciliation ruling, item 6: one user's CURRENT assignment
+    on a line item, embedded read-only inside LineItemResponse.assignments
+    so the assignment-UI can render "who's on this line" from the same
+    GET /expenses/{id} response that already carries the line items --
+    no extra round-trip, and no N+1 query (populated from the SAME
+    `.assignments` relationship _load_lines_with_assignments already
+    eager-loads via selectinload).
+
+    Deliberately id-less (no ItemAssignment.id / share_minor here) -- this
+    is a lightweight "current assignment" projection for the UI, not a
+    replacement for GET /expenses/{id}/shares or the allocation-preview
+    endpoint, which remain the source of truth for computed money.
+    """
+
+    user_id: uuid.UUID
+    # Numeric(10,4) on the wire, serialized as a string -- same convention
+    # as LineItemResponse.quantity below, so no IEEE-754 float enters a
+    # money-adjacent field.
+    weight: Decimal
+
+    model_config = {"from_attributes": True}
+
+    @field_serializer("weight")
+    def serialize_weight(self, value: Decimal) -> str:
+        return str(value)
+
+
 class LineItemResponse(BaseModel):
     id: uuid.UUID
     expense_id: uuid.UUID
     line_no: int
     kind: LineItemKind
     description: str | None
-    quantity: Any
+    # Decimal on the wire, serialized as a string (see packages/core/src/
+    # schemas.ts's lineItemResponseSchema -- `quantity: z.string()`) so no
+    # IEEE-754 float ever enters the frontend's parsing of a money-adjacent
+    # field. Previously typed `Any`, which let FastAPI's default JSON
+    # encoder emit a bare Decimal as a float, breaking the frontend's zod
+    # validation on every expense with line items.
+    quantity: Decimal
     unit_price_minor: int | None
     total_minor: int
     allocation: AllocationMethod | None
     discount_scope: DiscountScope | None = None
     parent_line_id: uuid.UUID | None = None
     bundle_group_id: uuid.UUID | None = None
+    # M6 item 4 (API GAPS follow-up, M6-M8 item 5): per-item GST detail --
+    # only meaningful (non-NULL) when the parent expense's gst_mode ==
+    # 'item_level'; NULL on every other line, matching the DB columns
+    # exactly (see app.domain.models.ExpenseLineItem.gst_rate/
+    # gst_amount_minor).
+    gst_rate: Decimal | None = None
+    gst_amount_minor: int | None = None
+    # M6-M8 total-reconciliation ruling, item 6: current assignments on this
+    # line (see LineItemAssignmentInfo above). Populated from the SAME
+    # eager-loaded `.assignments` relationship every ExpenseResponse route
+    # already loads -- never a separate query.
+    assignments: list[LineItemAssignmentInfo] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("quantity")
+    def serialize_quantity(self, value: Decimal) -> str:
+        return str(value)
+
+    @field_serializer("gst_rate")
+    def serialize_gst_rate(self, value: Decimal | None) -> str | None:
+        return str(value) if value is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +299,22 @@ class AssignmentsPut(BaseModel):
     assignments: list[AssignmentIn] = Field(..., min_length=1)
 
 
+class BulkAssignmentIn(BaseModel):
+    """
+    POST /expenses/{id}/assignments/bulk payload (M6-M8 item 7a).
+
+    Replace-set semantics PER ITEM (not the whole expense, unlike
+    AssignmentsPut above): for every line item in `item_ids`, its existing
+    assignments are replaced with one equal-weight (weight=1) row per member
+    in `member_ids`. Convenience bulk-assign for the assignment UI ("assign
+    these people to these items") -- for per-line weighted splits use
+    PUT /expenses/{id}/assignments instead.
+    """
+
+    item_ids: list[uuid.UUID] = Field(..., min_length=1)
+    member_ids: list[uuid.UUID] = Field(..., min_length=1)
+
+
 class AssignmentResponse(BaseModel):
     id: uuid.UUID
     line_item_id: uuid.UUID
@@ -237,6 +330,56 @@ class SharesResponse(BaseModel):
     shares: dict[uuid.UUID, int]
 
 
+# ---------------------------------------------------------------------------
+# M6 item 5: discount + GST allocation preview
+# ---------------------------------------------------------------------------
+
+
+class MemberBreakdownResponse(BaseModel):
+    """Mirrors app.domain.splitting.MemberBreakdown 1:1."""
+
+    user_id: uuid.UUID
+    base_minor: int
+    discount_minor: int
+    gst_minor: int
+    total_minor: int
+
+
+class AllocationProblem(BaseModel):
+    """
+    One reason a DRAFT expense's allocation could not be (fully) computed,
+    or an informational note about it -- never a 500; see
+    GET /expenses/{id}/allocation-preview.
+
+    `count` / `line_ids` (M6-M8 total-reconciliation ruling, API GAPS item
+    8): optional structured detail for problems about a SET of lines --
+    currently only `unassigned_lines` populates them. Every other existing
+    code (`needs_review`, `discount_recorded_but_inert`, `split_error`)
+    leaves both None, unchanged from before this field was added.
+    """
+
+    code: str
+    message: str
+    count: int | None = None
+    line_ids: list[uuid.UUID] | None = None
+
+
+class AllocationPreviewResponse(BaseModel):
+    expense_id: uuid.UUID
+    # True for a confirmed expense (persisted expense_member_allocations
+    # rows, never re-computed); False for a draft (live compute_allocation).
+    confirmed: bool
+    members: list[MemberBreakdownResponse] = Field(default_factory=list)
+    subtotal_minor: int | None = None
+    applied_discount_minor: int | None = None
+    exclusive_gst_minor: int | None = None
+    discount_recorded_but_inert: bool = False
+    # Non-empty only for a draft expense whose allocation could not be
+    # computed (e.g. unassigned lines) or that is flagged needs_review --
+    # `members` is then empty rather than partially populated.
+    problems: list[AllocationProblem] = Field(default_factory=list)
+
+
 class RefundCreate(BaseModel):
     """Post-confirmation refund against one original item line."""
 
@@ -246,6 +389,25 @@ class RefundCreate(BaseModel):
     # Optional client-supplied key; a retried request with the same key
     # returns the existing state instead of double-posting the refund.
     idempotency_key: str | None = Field(default=None, max_length=255)
+
+
+class TaxComponentResponse(BaseModel):
+    """
+    M6 item 4 (API GAPS follow-up, M6-M8 item 5): one persisted
+    expense_tax_components row (CGST/SGST/IGST/GST/CESS), embedded in
+    ExpenseResponse.tax_components. Mirrors app.domain.models.
+    ExpenseTaxComponent 1:1.
+    """
+
+    name: TaxComponentName
+    rate: Decimal | None
+    amount_minor: int
+
+    model_config = {"from_attributes": True}
+
+    @field_serializer("rate")
+    def serialize_rate(self, value: Decimal | None) -> str | None:
+        return str(value) if value is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +508,90 @@ class ExpenseResponse(BaseModel):
     # Optional so any consumer still coded against the base v1 shape parses
     # this response unchanged.
     pdf_object_key: str | None = None
+    # M6 item 3: discount snapshot (see app/domain/vendor_discount.py). All
+    # optional/None for expenses with no known discount, matching the
+    # "additive, backward compatible" convention already used for
+    # pdf_object_key above.
+    #
+    # M6 item 5 UPDATE: these fields USED to be informational/audit-only
+    # (they never fed into total_minor, line item shares, or ledger
+    # balances). That is no longer true: app.domain.splitting.
+    # compute_allocation now reads this exact snapshot (via
+    # discount_spec_from_expense) at confirmation time and layers it into
+    # each member's actual owed amount -- see
+    # GET /expenses/{id}/allocation-preview and POST /expenses/{id}/confirm.
+    _DISCOUNT_FIELD_NOTE = (
+        "Snapshot at the time the discount was applied (manual entry, a "
+        "matched vendor rule, or an extracted printed line). As of M6 item "
+        "5, this DOES feed into each member's actual owed amount at "
+        "confirmation (see app.domain.splitting.compute_allocation and "
+        "GET /expenses/{id}/allocation-preview) -- it is no longer purely "
+        "informational."
+    )
+    discount_type: DiscountType | None = Field(
+        default=None,
+        description="Discount shape ('flat' or 'percent') from the matched "
+        "vendor rule or manual entry. " + _DISCOUNT_FIELD_NOTE,
+    )
+    discount_value_minor: int | None = Field(
+        default=None,
+        description="Flat discount amount in minor units, when "
+        "discount_type='flat'. " + _DISCOUNT_FIELD_NOTE,
+    )
+    discount_percent: Decimal | None = Field(
+        default=None,
+        description="Discount percentage, when discount_type='percent'. "
+        + _DISCOUNT_FIELD_NOTE,
+    )
+    discount_threshold_minor: int | None = Field(
+        default=None,
+        description="The min_order_total_minor threshold of the matched "
+        "rule, if any. " + _DISCOUNT_FIELD_NOTE,
+    )
+    discount_source: DiscountSource | None = Field(
+        default=None,
+        description="Where this discount snapshot came from: 'manual', "
+        "'vendor_rule', or 'extracted'. " + _DISCOUNT_FIELD_NOTE,
+    )
+    discount_rule_id: uuid.UUID | None = Field(
+        default=None,
+        description="The VendorDiscountRule that produced this snapshot, "
+        "if discount_source='vendor_rule'. " + _DISCOUNT_FIELD_NOTE,
+    )
+    # M6 item 4 (finance-logic-reviewer CRITICAL fix follow-up): this was
+    # previously invisible via the API entirely, even though
+    # POST /expenses/{id}/confirm's 422 response already documented it as
+    # the reason confirmation is blocked. Additive/optional, defaulted, to
+    # match the backward-compatible convention already used above for
+    # pdf_object_key / discount_*.
+    needs_review: bool = Field(
+        default=False,
+        description="Set when GST-specific arithmetic invariants "
+        "(app/domain/gst.py) fail to reconcile against the CURRENTLY "
+        "persisted line items / tax components. Independent of "
+        "parse_status. Confirmation is blocked while this is true.",
+    )
+    # M6-M8 total-reconciliation ruling -- API GAPS items 5 and 7.
+    gst_mode: GstMode = Field(
+        default=GstMode.none,
+        description="How this invoice expresses GST -- see "
+        "app.domain.models.GstMode. Always set (defaults to 'none').",
+    )
+    tax_components: list[TaxComponentResponse] = Field(
+        default_factory=list,
+        description="Persisted expense_tax_components rows (CGST/SGST/"
+        "IGST/GST/CESS), if any.",
+    )
+    is_frozen_shares: bool = Field(
+        default=False,
+        description="True iff this expense's item_assignments are all "
+        "frozen (the M1 explicit-shares/equal-split flow, which never "
+        "runs compute_allocation) -- the SAME predicate "
+        "app.api.expenses._resolve_allocation, patch_expense_discount, "
+        "and accept_computed_total use for their 422 guards (see "
+        "app.domain.splitting.is_frozen_shares). False for an item-level "
+        "(M2) draft expense with pending, unfrozen assignments.",
+    )
 
     model_config = {"from_attributes": True}
 
@@ -395,6 +641,214 @@ class LineItemsCorrection(BaseModel):
     """
 
     line_items: list[LineItemCreate] = Field(..., min_length=1)
+
+
+# ---------------------------------------------------------------------------
+# Vendor discount rules (M6 item 3)
+# ---------------------------------------------------------------------------
+
+
+def _validate_discount_shape(
+    discount_type: DiscountType,
+    discount_value_minor: int | None,
+    discount_percent: Decimal | None,
+) -> None:
+    """Shared shape validation mirroring the DB CHECK constraint in
+    migration 0008 (ck_vendor_rule_discount_value_shape): exactly one of the
+    two discount shapes may be set, matching its own discount_type."""
+    if discount_type == DiscountType.flat:
+        if discount_value_minor is None or discount_value_minor <= 0:
+            raise ValueError(
+                "discount_value_minor must be > 0 when discount_type='flat'"
+            )
+        if discount_percent is not None:
+            raise ValueError(
+                "discount_percent must not be set when discount_type='flat'"
+            )
+    else:  # percent
+        if discount_percent is None or not (
+            Decimal("0") < discount_percent <= Decimal("100")
+        ):
+            raise ValueError(
+                "discount_percent must be > 0 and <= 100 when discount_type='percent'"
+            )
+        if discount_value_minor is not None:
+            raise ValueError(
+                "discount_value_minor must not be set when discount_type='percent'"
+            )
+
+
+class ExpenseDiscountPatch(BaseModel):
+    """
+    PATCH /expenses/{id}/discount payload (M6-M8 item 7a, draft expenses
+    only).
+
+    `discount_type=None` means CLEAR the current snapshot and re-run
+    vendor-rule auto-matching (see app.api.expenses.patch_expense_discount) --
+    this is the only way to get back to a vendor-rule-sourced snapshot after
+    a manual one was set, since manual always wins and is never
+    auto-overwritten.
+
+    `discount_type` set means SET a manual discount snapshot (always wins
+    over any vendor rule from then on, per app.domain.vendor_discount's
+    "manual always wins" precedence).
+    """
+
+    discount_type: DiscountType | None = None
+    discount_value_minor: int | None = None
+    discount_percent: Decimal | None = None
+    discount_threshold_minor: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _validate(self) -> ExpenseDiscountPatch:
+        if self.discount_type is not None:
+            _validate_discount_shape(
+                self.discount_type, self.discount_value_minor, self.discount_percent
+            )
+        return self
+
+
+class VendorDiscountRuleCreate(BaseModel):
+    """
+    Create a vendor discount rule.
+
+    `group_id=None` creates a "creator-global" rule (usable by its creator
+    across any of their groups -- see GET /vendor-discount-rules/global).
+    `group_id=<uuid>` creates a rule scoped to that one group (any admin of
+    the group may create/edit it).
+
+    `vendor_pattern` is normalized (`.strip().lower()`, via
+    app.extraction.vendor_detect.normalize_vendor_text) HERE at the schema
+    layer before it ever reaches the DB or the CRUD layer -- the stored
+    value is always pre-normalized so app.domain.vendor_discount.match_rule
+    can compare it directly against an already-normalized vendor string.
+    """
+
+    group_id: uuid.UUID | None = None
+    vendor_pattern: str = Field(..., min_length=1)
+    min_order_total_minor: int = Field(default=0, ge=0)
+    discount_type: DiscountType
+    discount_value_minor: int | None = None
+    discount_percent: Decimal | None = None
+
+    @model_validator(mode="after")
+    def _normalize_and_validate(self) -> VendorDiscountRuleCreate:
+        self.vendor_pattern = normalize_vendor_text(self.vendor_pattern)
+        _validate_discount_shape(
+            self.discount_type, self.discount_value_minor, self.discount_percent
+        )
+        return self
+
+
+class VendorDiscountRuleUpdate(BaseModel):
+    """
+    Partial update of a vendor discount rule. Any field omitted (None) is
+    left unchanged, EXCEPT `active` which always has an explicit boolean
+    default matching "no change" semantics via the endpoint (see
+    app/api/vendor_discount_rules.py) -- soft-delete (active=false) has its
+    own dedicated DELETE-verb endpoint, so `active` is not normally touched
+    here, but is accepted for symmetry/reactivation.
+
+    If either discount_type/value/percent field is supplied, ALL THREE of
+    (discount_type, discount_value_minor, discount_percent) must be
+    supplied together so the shape can be validated as a whole -- partial
+    discount-shape edits are rejected rather than guessed.
+    """
+
+    vendor_pattern: str | None = Field(default=None, min_length=1)
+    min_order_total_minor: int | None = Field(default=None, ge=0)
+    discount_type: DiscountType | None = None
+    discount_value_minor: int | None = None
+    discount_percent: Decimal | None = None
+    active: bool | None = None
+
+    @model_validator(mode="after")
+    def _normalize_and_validate(self) -> VendorDiscountRuleUpdate:
+        if self.vendor_pattern is not None:
+            self.vendor_pattern = normalize_vendor_text(self.vendor_pattern)
+        discount_fields_set = (
+            self.discount_type is not None
+            or self.discount_value_minor is not None
+            or self.discount_percent is not None
+        )
+        if discount_fields_set:
+            if self.discount_type is None:
+                raise ValueError(
+                    "discount_type must be supplied when changing "
+                    "discount_value_minor/discount_percent"
+                )
+            _validate_discount_shape(
+                self.discount_type, self.discount_value_minor, self.discount_percent
+            )
+        return self
+
+
+class VendorDiscountRuleResponse(BaseModel):
+    id: uuid.UUID
+    group_id: uuid.UUID | None
+    created_by: uuid.UUID
+    vendor_pattern: str
+    min_order_total_minor: int
+    discount_type: DiscountType
+    discount_value_minor: int | None
+    discount_percent: Decimal | None
+    active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class VendorDiscountRulesListResponse(BaseModel):
+    rules: list[VendorDiscountRuleResponse]
+
+
+# ---------------------------------------------------------------------------
+# Grouped group-expenses list (M6-M8 item 7a)
+# ---------------------------------------------------------------------------
+
+
+class ExpenseMemberShare(BaseModel):
+    """
+    One member's PERSISTED (never recomputed) share of an expense --
+    expense_member_allocations.total_minor for an item-5-confirmed expense,
+    or the sum of frozen item_assignments.share_minor for that user
+    otherwise. Members with no frozen share yet (a draft item-level expense
+    before confirmation) simply do not appear here -- see
+    GET /groups/{group_id}/expenses.
+    """
+
+    user_id: uuid.UUID
+    share_minor: int
+
+
+class GroupExpenseSummary(BaseModel):
+    id: uuid.UUID
+    vendor: str | None
+    invoice_date: date | None
+    total_minor: int
+    paid_by: uuid.UUID
+    parse_status: ParseStatus
+    member_shares: list[ExpenseMemberShare] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
+
+class GroupExpensesBucket(BaseModel):
+    """
+    One date bucket. `date=None` is the deterministic "undated" bucket for
+    expenses with invoice_date IS NULL -- see
+    GET /groups/{group_id}/expenses's docstring for why NULL invoice_date is
+    never silently folded into a `created_at`-derived date instead.
+    """
+
+    date: date | None
+    expenses: list[GroupExpenseSummary]
+
+
+class GroupExpensesGroupedResponse(BaseModel):
+    group_id: uuid.UUID
+    buckets: list[GroupExpensesBucket]
 
 
 # ---------------------------------------------------------------------------

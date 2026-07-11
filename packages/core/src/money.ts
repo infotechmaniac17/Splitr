@@ -62,10 +62,13 @@ export function formatMoney(
   const decimals = String(perMajor - 1).length; // 100 -> 2 decimals, 1 -> 0
 
   const majorStr = groupThousands(majorPart.toString());
-  const minorStr = decimals > 0 ? "." + minorPart.toString().padStart(decimals, "0") : "";
+  const minorStr =
+    decimals > 0 ? "." + minorPart.toString().padStart(decimals, "0") : "";
 
   const sign = amountMinor < 0 ? "-" : showPositiveSign ? "+" : "";
-  const symbol = showSymbol ? (CURRENCY_SYMBOLS[currency.toUpperCase()] ?? currency + " ") : "";
+  const symbol = showSymbol
+    ? (CURRENCY_SYMBOLS[currency.toUpperCase()] ?? currency + " ")
+    : "";
 
   return `${sign}${symbol}${majorStr}${minorStr}`;
 }
@@ -94,7 +97,8 @@ export function toMinorUnits(input: string, currency = "INR"): number {
   const unsigned = negative ? trimmed.slice(1) : trimmed;
   const [major = "0", minor = ""] = unsigned.split(".");
   const minorPadded = (minor + "0".repeat(decimals)).slice(0, decimals);
-  const totalMinor = BigInt(major) * BigInt(perMajor) + BigInt(minorPadded || "0");
+  const totalMinor =
+    BigInt(major) * BigInt(perMajor) + BigInt(minorPadded || "0");
   const result = Number(totalMinor);
   return negative ? -result : result;
 }

@@ -71,7 +71,9 @@ export default function ExpenseDetailScreen() {
         <Text style={styles.title}>{expense.vendor || "Expense"}</Text>
         <StatusBadge status={expense.parse_status} />
       </View>
-      <Text style={styles.total}>{formatMoney(expense.total_minor, expense.currency)}</Text>
+      <Text style={styles.total}>
+        {formatMoney(expense.total_minor, expense.currency)}
+      </Text>
 
       {expense.parse_status === "needs_review" && (
         <View style={styles.calloutWarning}>
@@ -102,7 +104,9 @@ export default function ExpenseDetailScreen() {
       )}
 
       {expense.parse_status === "queued" && (
-        <Text style={styles.muted}>Still processing — pull to refresh in a moment.</Text>
+        <Text style={styles.muted}>
+          Still processing — pull to refresh in a moment.
+        </Text>
       )}
 
       {expense.parse_status === "parsed" && (
@@ -126,7 +130,9 @@ export default function ExpenseDetailScreen() {
               style={{ marginTop: spacing.sm }}
             />
           )}
-          {confirmError ? <Text style={styles.error}>{confirmError}</Text> : null}
+          {confirmError ? (
+            <Text style={styles.error}>{confirmError}</Text>
+          ) : null}
         </View>
       )}
 
@@ -134,10 +140,14 @@ export default function ExpenseDetailScreen() {
       {expense.line_items.map((li) => (
         <View key={li.id} style={styles.lineRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.lineDesc}>{li.description || lineItemKindLabels[li.kind]}</Text>
+            <Text style={styles.lineDesc}>
+              {li.description || lineItemKindLabels[li.kind]}
+            </Text>
             <Text style={styles.lineKind}>{lineItemKindLabels[li.kind]}</Text>
           </View>
-          <Text style={styles.lineAmount}>{formatMoney(li.total_minor, expense.currency)}</Text>
+          <Text style={styles.lineAmount}>
+            {formatMoney(li.total_minor, expense.currency)}
+          </Text>
         </View>
       ))}
 
@@ -147,7 +157,9 @@ export default function ExpenseDetailScreen() {
           {Object.entries(shares.shares).map(([userId, amount]) => (
             <View key={userId} style={styles.lineRow}>
               <Text style={styles.lineDesc}>{userId.slice(0, 8)}…</Text>
-              <Text style={styles.lineAmount}>{formatMoney(amount, expense.currency)}</Text>
+              <Text style={styles.lineAmount}>
+                {formatMoney(amount, expense.currency)}
+              </Text>
             </View>
           ))}
         </>
@@ -157,9 +169,18 @@ export default function ExpenseDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
   title: { fontSize: 22, fontWeight: "800", color: colors.text, flexShrink: 1 },
-  total: { fontSize: 28, fontWeight: "800", color: colors.text, marginTop: spacing.xs },
+  total: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: colors.text,
+    marginTop: spacing.xs,
+  },
   sectionTitle: {
     fontSize: 16,
     fontWeight: "700",

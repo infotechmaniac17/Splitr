@@ -27,8 +27,8 @@ export default function ProfileScreen() {
       </View>
 
       <Text style={styles.hint}>
-        Your user ID is handy for other people to add you to a group by ID
-        until group invites by email ship.
+        Your user ID is handy for other people to add you to a group by ID until
+        group invites by email ship.
       </Text>
 
       <Button
@@ -44,7 +44,15 @@ export default function ProfileScreen() {
   );
 }
 
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Field({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
     <View style={{ marginBottom: spacing.md }}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -54,7 +62,12 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 24, fontWeight: "800", color: colors.text, marginBottom: spacing.md },
+  title: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: colors.text,
+    marginBottom: spacing.md,
+  },
   card: {
     backgroundColor: colors.card,
     borderWidth: 1,

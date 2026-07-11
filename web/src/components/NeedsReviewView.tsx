@@ -36,7 +36,9 @@ export function NeedsReviewView({
   expense: ExpenseResponse;
   onCorrected: (expense: ExpenseResponse) => void;
 }) {
-  const [rows, setRows] = useState<LineItemCreate[]>(() => lineItemsFromExpense(expense));
+  const [rows, setRows] = useState<LineItemCreate[]>(() =>
+    lineItemsFromExpense(expense),
+  );
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [rawError, setRawError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -49,7 +51,9 @@ export function NeedsReviewView({
         const last = raw.attempts[raw.attempts.length - 1];
         setIssues(last?.validation?.issues ?? []);
       })
-      .catch(() => setRawError("Could not load validation details for this expense."));
+      .catch(() =>
+        setRawError("Could not load validation details for this expense."),
+      );
   }, [expense.id]);
 
   const issuesByLine = useMemo(() => {
@@ -92,7 +96,9 @@ export function NeedsReviewView({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const corrected = await api.submitLineItemCorrection(expense.id, { line_items: rows });
+      const corrected = await api.submitLineItemCorrection(expense.id, {
+        line_items: rows,
+      });
       onCorrected(corrected);
     } catch (err) {
       setSubmitError(formatApiError(err, "Could not save corrections"));
@@ -106,8 +112,8 @@ export function NeedsReviewView({
       <div>
         <h1 className="text-xl font-bold">Needs review</h1>
         <p className="text-sm text-gray-500">
-          {expense.vendor ?? "This invoice"} didn&apos;t pass automatic validation. Fix the
-          highlighted fields below, then resubmit.
+          {expense.vendor ?? "This invoice"} didn&apos;t pass automatic
+          validation. Fix the highlighted fields below, then resubmit.
         </p>
       </div>
 
@@ -115,7 +121,9 @@ export function NeedsReviewView({
         <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
           <ul className="list-disc pl-4">
             {invoiceLevelIssues.map((issue, i) => (
-              <li key={i}>{issue.message || validationIssueLabels[issue.code]}</li>
+              <li key={i}>
+                {issue.message || validationIssueLabels[issue.code]}
+              </li>
             ))}
           </ul>
         </div>
@@ -157,7 +165,9 @@ export function NeedsReviewView({
                   <select
                     value={row.kind}
                     onChange={(e) =>
-                      updateRow(idx, { kind: e.target.value as LineItemCreate["kind"] })
+                      updateRow(idx, {
+                        kind: e.target.value as LineItemCreate["kind"],
+                      })
                     }
                     className="rounded border border-gray-300 px-2 py-1"
                   >
@@ -169,13 +179,17 @@ export function NeedsReviewView({
                   </select>
                   <input
                     value={row.description ?? ""}
-                    onChange={(e) => updateRow(idx, { description: e.target.value })}
+                    onChange={(e) =>
+                      updateRow(idx, { description: e.target.value })
+                    }
                     placeholder="Description"
                     className="rounded border border-gray-300 px-2 py-1"
                   />
                   <input
                     value={row.quantity}
-                    onChange={(e) => updateRow(idx, { quantity: e.target.value })}
+                    onChange={(e) =>
+                      updateRow(idx, { quantity: e.target.value })
+                    }
                     placeholder="Qty"
                     className="rounded border border-gray-300 px-2 py-1"
                   />
@@ -184,7 +198,8 @@ export function NeedsReviewView({
                     value={row.unit_price_minor ?? ""}
                     onChange={(e) =>
                       updateRow(idx, {
-                        unit_price_minor: e.target.value === "" ? null : Number(e.target.value),
+                        unit_price_minor:
+                          e.target.value === "" ? null : Number(e.target.value),
                       })
                     }
                     placeholder="Unit price (minor)"
@@ -193,18 +208,19 @@ export function NeedsReviewView({
                   <input
                     type="number"
                     value={row.total_minor}
-                    onChange={(e) => updateRow(idx, { total_minor: Number(e.target.value) })}
+                    onChange={(e) =>
+                      updateRow(idx, { total_minor: Number(e.target.value) })
+                    }
                     placeholder="Total (minor)"
                     className="col-span-2 rounded border border-gray-300 px-2 py-1"
                   />
-                  {(row.kind === LineItemKind.discount) && (
+                  {row.kind === LineItemKind.discount && (
                     <select
                       value={row.discount_scope ?? ""}
                       onChange={(e) =>
                         updateRow(idx, {
                           discount_scope: (e.target.value || undefined) as
-                            | DiscountScope
-                            | undefined,
+                            DiscountScope | undefined,
                         })
                       }
                       className="col-span-2 rounded border border-gray-300 px-2 py-1"
@@ -214,24 +230,26 @@ export function NeedsReviewView({
                       <option value={DiscountScope.cart}>Cart</option>
                     </select>
                   )}
-                  {row.kind !== LineItemKind.item && row.kind !== LineItemKind.discount && (
-                    <select
-                      value={row.allocation ?? ""}
-                      onChange={(e) =>
-                        updateRow(idx, {
-                          allocation: (e.target.value || undefined) as
-                            | AllocationMethod
-                            | undefined,
-                        })
-                      }
-                      className="col-span-2 rounded border border-gray-300 px-2 py-1"
-                    >
-                      <option value="">Allocation…</option>
-                      <option value={AllocationMethod.equal}>Equal</option>
-                      <option value={AllocationMethod.proportional}>Proportional</option>
-                      <option value={AllocationMethod.manual}>Manual</option>
-                    </select>
-                  )}
+                  {row.kind !== LineItemKind.item &&
+                    row.kind !== LineItemKind.discount && (
+                      <select
+                        value={row.allocation ?? ""}
+                        onChange={(e) =>
+                          updateRow(idx, {
+                            allocation: (e.target.value || undefined) as
+                              AllocationMethod | undefined,
+                          })
+                        }
+                        className="col-span-2 rounded border border-gray-300 px-2 py-1"
+                      >
+                        <option value="">Allocation…</option>
+                        <option value={AllocationMethod.equal}>Equal</option>
+                        <option value={AllocationMethod.proportional}>
+                          Proportional
+                        </option>
+                        <option value={AllocationMethod.manual}>Manual</option>
+                      </select>
+                    )}
                 </div>
                 <button
                   type="button"
@@ -254,7 +272,9 @@ export function NeedsReviewView({
 
           <div
             className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium ${
-              reconciles ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+              reconciles
+                ? "bg-emerald-100 text-emerald-800"
+                : "bg-amber-100 text-amber-800"
             }`}
           >
             <span>Lines sum</span>

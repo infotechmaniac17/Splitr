@@ -1,43 +1,58 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { GroupBalancesResponse, GroupResponse, UserResponse } from "@splitr/core";
+import type {
+  GroupBalancesResponse,
+  GroupMemberInfo,
+  GroupResponse,
+} from "@splitr/core";
 import { IdentityGate } from "@/components/IdentityGate";
 import { Money } from "@/components/Money";
 import { Avatar } from "@/components/Avatar";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import {
-  listGroupMembers,
-  listRememberedExpenses,
-  rememberGroupMember,
-  type RememberedMember,
-} from "@/lib/local-store";
+import { listRememberedExpenses } from "@/lib/local-store";
 
 function GroupDetailContent({ groupId }: { groupId: string }) {
   const { user } = useAuth();
   const [group, setGroup] = useState<GroupResponse | null>(null);
   const [balances, setBalances] = useState<GroupBalancesResponse | null>(null);
-  const [members, setMembers] = useState<RememberedMember[]>([]);
+  const [members, setMembers] = useState<GroupMemberInfo[]>([]);
   const [expenses, setExpenses] = useState<{ id: string }[]>([]);
   const [memberIdInput, setMemberIdInput] = useState("");
   const [addingMember, setAddingMember] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function refetchMembers() {
+    api
+      .getGroupMembers(groupId)
+      .then((res) => setMembers(res.members))
+      .catch(() => setMembers([]));
+  }
+
   useEffect(() => {
-    api.getGroup(groupId).then(setGroup).catch(() => setGroup(null));
-    api.getGroupBalances(groupId).then(setBalances).catch(() => setBalances(null));
-    setMembers(listGroupMembers(groupId));
+    api
+      .getGroup(groupId)
+      .then(setGroup)
+      .catch(() => setGroup(null));
+    api
+      .getGroupBalances(groupId)
+      .then(setBalances)
+      .catch(() => setBalances(null));
+    refetchMembers();
     if (user) {
       setExpenses(
         listRememberedExpenses(user.id).filter((e) => e.groupId === groupId),
       );
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId, user]);
 
   function nameFor(userId: string): string {
-    return members.find((m) => m.id === userId)?.name ?? userId.slice(0, 8);
+    return (
+      members.find((m) => m.user_id === userId)?.name ?? userId.slice(0, 8)
+    );
   }
 
   async function handleAddMember(e: React.FormEvent) {
@@ -46,9 +61,7 @@ function GroupDetailContent({ groupId }: { groupId: string }) {
     setAddingMember(true);
     try {
       await api.addGroupMember(groupId, { user_id: memberIdInput.trim() });
-      const added: UserResponse = await api.getUser(memberIdInput.trim());
-      rememberGroupMember(groupId, { id: added.id, name: added.name });
-      setMembers(listGroupMembers(groupId));
+      refetchMembers();
       setMemberIdInput("");
     } catch (err) {
       setError(formatApiError(err, "Could not add member"));
@@ -57,14 +70,17 @@ function GroupDetailContent({ groupId }: { groupId: string }) {
     }
   }
 
-  if (!group) return <p className="pt-8 text-center text-sm text-gray-400">Loading…</p>;
+  if (!group)
+    return <p className="pt-8 text-center text-sm text-gray-400">Loading…</p>;
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-bold">{group.name}</h1>
         <p className="text-xs text-gray-400">
-          {group.simplify_debts ? "Debt simplification on" : "Debt simplification off"}
+          {group.simplify_debts
+            ? "Debt simplification on"
+            : "Debt simplification off"}
         </p>
       </div>
 
@@ -94,7 +110,7 @@ function GroupDetailContent({ groupId }: { groupId: string }) {
         <h2 className="mb-2 text-sm font-semibold text-gray-500">Members</h2>
         <div className="flex flex-wrap items-center gap-2">
           {members.map((m) => (
-            <span key={m.id} className="flex items-center gap-1 text-xs">
+            <span key={m.user_id} className="flex items-center gap-1 text-xs">
               <Avatar name={m.name} size="sm" />
               {m.name}
             </span>
@@ -122,9 +138,27 @@ function GroupDetailContent({ groupId }: { groupId: string }) {
       </section>
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold text-gray-500">Expenses</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-gray-500">Expenses</h2>
+          <div className="flex gap-3">
+            <Link
+              href={`/groups/${groupId}/expenses`}
+              className="text-xs font-medium text-brand-700"
+            >
+              Date-grouped list
+            </Link>
+            <Link
+              href={`/groups/${groupId}/vendor-discount-rules`}
+              className="text-xs font-medium text-brand-700"
+            >
+              Discount rules
+            </Link>
+          </div>
+        </div>
         {expenses.length === 0 && (
-          <p className="text-sm text-gray-400">No expenses yet in this browser.</p>
+          <p className="text-sm text-gray-400">
+            No expenses yet in this browser.
+          </p>
         )}
         {expenses.map((e) => (
           <Link
@@ -157,9 +191,9 @@ function GroupDetailContent({ groupId }: { groupId: string }) {
 export default function GroupDetailPage({
   params,
 }: {
-  params: Promise<{ groupId: string }>;
+  params: { groupId: string };
 }) {
-  const { groupId } = use(params);
+  const { groupId } = params;
   return (
     <IdentityGate>
       <GroupDetailContent groupId={groupId} />

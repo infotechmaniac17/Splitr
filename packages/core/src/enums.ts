@@ -8,7 +8,8 @@ export const GroupMemberRole = {
   admin: "admin",
   member: "member",
 } as const;
-export type GroupMemberRole = (typeof GroupMemberRole)[keyof typeof GroupMemberRole];
+export type GroupMemberRole =
+  (typeof GroupMemberRole)[keyof typeof GroupMemberRole];
 
 export const LineItemKind = {
   item: "item",
@@ -33,7 +34,8 @@ export const AllocationMethod = {
   proportional: "proportional",
   manual: "manual",
 } as const;
-export type AllocationMethod = (typeof AllocationMethod)[keyof typeof AllocationMethod];
+export type AllocationMethod =
+  (typeof AllocationMethod)[keyof typeof AllocationMethod];
 
 export const ExpenseSource = {
   pdf: "pdf",
@@ -62,7 +64,8 @@ export const LedgerEntryType = {
   settlement: "settlement",
   adjustment: "adjustment",
 } as const;
-export type LedgerEntryType = (typeof LedgerEntryType)[keyof typeof LedgerEntryType];
+export type LedgerEntryType =
+  (typeof LedgerEntryType)[keyof typeof LedgerEntryType];
 
 export const SettlementMethod = {
   upi: "upi",
@@ -70,7 +73,50 @@ export const SettlementMethod = {
   bank: "bank",
   other: "other",
 } as const;
-export type SettlementMethod = (typeof SettlementMethod)[keyof typeof SettlementMethod];
+export type SettlementMethod =
+  (typeof SettlementMethod)[keyof typeof SettlementMethod];
+
+export const DiscountType = {
+  flat: "flat",
+  percent: "percent",
+} as const;
+export type DiscountType = (typeof DiscountType)[keyof typeof DiscountType];
+
+export const DiscountSource = {
+  manual: "manual",
+  vendor_rule: "vendor_rule",
+  extracted: "extracted",
+} as const;
+export type DiscountSource =
+  (typeof DiscountSource)[keyof typeof DiscountSource];
+
+/**
+ * M6-M8 total-reconciliation ruling: how an expense's invoice expresses
+ * GST/tax. Mirrors backend/app/domain/models.py's GstMode 1:1.
+ */
+export const GstMode = {
+  none: "none",
+  invoice_exclusive: "invoice_exclusive",
+  invoice_inclusive: "invoice_inclusive",
+  item_level: "item_level",
+} as const;
+export type GstMode = (typeof GstMode)[keyof typeof GstMode];
+
+/**
+ * Recognized Indian GST component names. Mirrors backend/app/domain/
+ * models.py's TaxComponentName 1:1 -- note these wire values are UPPERCASE
+ * (unlike most other enums in this module), matching the backend's own
+ * deliberate deviation (see that class's doc comment).
+ */
+export const TaxComponentName = {
+  CGST: "CGST",
+  SGST: "SGST",
+  IGST: "IGST",
+  GST: "GST",
+  CESS: "CESS",
+} as const;
+export type TaxComponentName =
+  (typeof TaxComponentName)[keyof typeof TaxComponentName];
 
 /** Stable validation issue codes, API_CONTRACT.md §4. */
 export const ValidationIssueCode = {

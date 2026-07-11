@@ -1,7 +1,11 @@
 import React, { useCallback, useState } from "react";
 import { StyleSheet, Text, View, Pressable } from "react-native";
 import { useFocusEffect, router } from "expo-router";
-import { formatMoney, type ExpenseResponse, type GroupResponse } from "@splitr/core";
+import {
+  formatMoney,
+  type ExpenseResponse,
+  type GroupResponse,
+} from "@splitr/core";
 import { Screen } from "@/components/Screen";
 import { Button } from "@/components/Button";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -29,10 +33,15 @@ export default function DashboardScreen() {
       ]);
       setNetBalance(balance.net_balance_minor);
 
-      const groupResults = await Promise.allSettled(groupIds.map((id) => apiClient.getGroup(id)));
+      const groupResults = await Promise.allSettled(
+        groupIds.map((id) => apiClient.getGroup(id)),
+      );
       setGroups(
         groupResults
-          .filter((r): r is PromiseFulfilledResult<GroupResponse> => r.status === "fulfilled")
+          .filter(
+            (r): r is PromiseFulfilledResult<GroupResponse> =>
+              r.status === "fulfilled",
+          )
           .map((r) => r.value),
       );
 
@@ -41,7 +50,10 @@ export default function DashboardScreen() {
       );
       setExpenses(
         expenseResults
-          .filter((r): r is PromiseFulfilledResult<ExpenseResponse> => r.status === "fulfilled")
+          .filter(
+            (r): r is PromiseFulfilledResult<ExpenseResponse> =>
+              r.status === "fulfilled",
+          )
           .map((r) => r.value),
       );
     } finally {
@@ -76,7 +88,10 @@ export default function DashboardScreen() {
       </View>
 
       <View style={styles.actionsRow}>
-        <Button title="Upload receipt" onPress={() => router.push("/expense/upload")} />
+        <Button
+          title="Upload receipt"
+          onPress={() => router.push("/expense/upload")}
+        />
         <View style={{ width: spacing.sm }} />
         <Button
           title="Manual expense"
@@ -85,7 +100,10 @@ export default function DashboardScreen() {
         />
       </View>
 
-      <SectionHeader title="Your groups" onAdd={() => router.push("/group/new")} />
+      <SectionHeader
+        title="Your groups"
+        onAdd={() => router.push("/group/new")}
+      />
       {groups.length === 0 ? (
         <EmptyHint text="No groups yet. Create one to start splitting with friends." />
       ) : (
@@ -113,7 +131,9 @@ export default function DashboardScreen() {
           >
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle}>{e.vendor || "Expense"}</Text>
-              <Text style={styles.rowSubtitle}>{formatMoney(e.total_minor, e.currency)}</Text>
+              <Text style={styles.rowSubtitle}>
+                {formatMoney(e.total_minor, e.currency)}
+              </Text>
             </View>
             <StatusBadge status={e.parse_status} />
           </Pressable>
@@ -123,7 +143,13 @@ export default function DashboardScreen() {
   );
 }
 
-function SectionHeader({ title, onAdd }: { title: string; onAdd?: () => void }) {
+function SectionHeader({
+  title,
+  onAdd,
+}: {
+  title: string;
+  onAdd?: () => void;
+}) {
   return (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -145,7 +171,12 @@ function EmptyHint({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  greeting: { fontSize: 24, fontWeight: "800", color: colors.text, marginBottom: spacing.md },
+  greeting: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: colors.text,
+    marginBottom: spacing.md,
+  },
   balanceCard: {
     backgroundColor: colors.card,
     borderRadius: radius.md,

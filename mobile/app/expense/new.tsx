@@ -65,7 +65,12 @@ export default function NewExpenseScreen() {
 
   return (
     <Screen>
-      <Field label="Vendor (optional)" placeholder="Swiggy" value={vendor} onChangeText={setVendor} />
+      <Field
+        label="Vendor (optional)"
+        placeholder="Swiggy"
+        value={vendor}
+        onChangeText={setVendor}
+      />
       <Field
         label="Total amount (INR)"
         placeholder="857.00"
@@ -82,9 +87,9 @@ export default function NewExpenseScreen() {
         error={error}
       />
       <Text style={styles.hint}>
-        Splits equally among you and anyone you list here. Leave blank to
-        record it as fully yours for now — you can add item-level detail
-        later by uploading a receipt instead.
+        Splits equally among you and anyone you list here. Leave blank to record
+        it as fully yours for now — you can add item-level detail later by
+        uploading a receipt instead.
       </Text>
       <Button title="Save expense" onPress={onSubmit} loading={loading} />
     </Screen>

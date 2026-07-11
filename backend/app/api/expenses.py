@@ -44,14 +44,25 @@ from app.api.deps import (
     get_storage,
 )
 from app.api.schemas import (
+    AllocationPreviewResponse,
+    AllocationProblem,
     AssignmentResponse,
     AssignmentsPut,
+    BulkAssignmentIn,
     ExpenseCreate,
+    ExpenseDiscountPatch,
     ExpenseResponse,
     LineItemsCorrection,
+    MemberBreakdownResponse,
     RawExtractionResponse,
     RefundCreate,
     SharesResponse,
+)
+from app.domain.gst import (
+    GstIssue,
+    base_item_totals_minor,
+    check_discount_consistency,
+    check_gst_invariants,
 )
 from app.domain.ledger import (
     load_expense_shares,
@@ -59,11 +70,15 @@ from app.domain.ledger import (
     post_refund_to_ledger,
 )
 from app.domain.models import (
+    DiscountSource,
     Expense,
     ExpenseLineItem,
+    ExpenseMemberAllocation,
     ExpenseSource,
     ExpenseStatus,
+    ExpenseTaxComponent,
     GroupMember,
+    GstMode,
     ItemAssignment,
     LineItemKind,
     ParseStatus,
@@ -71,13 +86,23 @@ from app.domain.models import (
 )
 from app.domain.rounding import allocate_largest_remainder
 from app.domain.splitting import (
+    AllocationResult,
     SplitError,
-    SplitResult,
-    compute_shares,
+    compute_allocation,
+    discount_spec_from_expense,
+    gst_spec_from_orm,
+    is_frozen_shares,
+    is_item_level,
     lines_from_orm,
+    resolve_discount_amount,
 )
-from app.extraction.schema import ExtractedInvoice, ExtractedLineItem
-from app.extraction.validation import validate_extraction
+from app.domain.vendor_discount import apply_vendor_discount_snapshot
+from app.extraction.schema import (
+    ExtractedInvoice,
+    ExtractedLineItem,
+    ExtractedTaxComponent,
+)
+from app.extraction.validation import validate_extraction, validate_gst
 
 if TYPE_CHECKING:
     from app.storage import PdfStorage
@@ -126,18 +151,33 @@ async def _load_lines_with_assignments(
     return list(result.scalars().all())
 
 
-async def _resolve_shares(
+async def _load_tax_components(
+    db: AsyncSession, expense_id: uuid.UUID
+) -> list[ExpenseTaxComponent]:
+    result = await db.execute(
+        select(ExpenseTaxComponent).where(ExpenseTaxComponent.expense_id == expense_id)
+    )
+    return list(result.scalars().all())
+
+
+async def _resolve_allocation(
     db: AsyncSession,
     expense: Expense,
-) -> tuple[dict[uuid.UUID, int], SplitResult | None]:
+) -> tuple[dict[uuid.UUID, int], AllocationResult | None]:
     """
     Resolve the final {user_id: share_minor} split for an expense.
 
     M1 path: every assignment already carries a frozen share_minor (written
-    at create time) — reuse those.
-    M2 path: at least one assignment has no share_minor — run the splitting
-    engine over the line items.  Returns the SplitResult so the caller can
-    freeze per-line shares at confirmation.
+    at create time) — reuse those as-is. Discount/GST snapshots are NOT
+    layered on top of this path (out of scope for M6 item 5 — the M1
+    equal/explicit-shares flow has never gone through the splitting engine
+    at all, discount or no discount).
+
+    M2 path: at least one assignment has no share_minor — run
+    compute_allocation() (item 5's discount+GST layer over the untouched
+    compute_shares()) over the line items. Returns the AllocationResult so
+    the caller can freeze per-line shares (via .base_result) AND persist
+    per-member discount/GST breakdown rows at confirmation.
     """
     expense_id = uuid.UUID(str(expense.id))
     lines = await _load_lines_with_assignments(db, expense_id)
@@ -148,16 +188,48 @@ async def _resolve_shares(
             detail="No item assignments found for this expense",
         )
 
-    if all(a.share_minor is not None for a in all_assignments):
+    if is_frozen_shares(lines):
+        # M6 item 5 (finance-reviewer HIGH, defense in depth): the frozen-
+        # shares path bypasses compute_allocation entirely, so a discount
+        # snapshot or an allocation-bearing gst_mode on such an expense can
+        # NEVER become real money -- refuse to confirm at silently-full
+        # price rather than let the snapshot rot inert. Create-time already
+        # skips apply_vendor_discount_snapshot for this flow; this guard
+        # catches any other path that populates the snapshot on a frozen-
+        # shares expense. (Already-confirmed expenses never reach here --
+        # confirm_expense's idempotent early-return fires first.)
+        if expense.discount_type is not None or expense.gst_mode in (
+            GstMode.invoice_exclusive,
+            GstMode.item_level,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Expense has a discount snapshot and/or an allocation-"
+                    "bearing gst_mode, but its shares were frozen at create "
+                    "time (explicit-shares flow) and cannot consume them. "
+                    "Clear the discount/GST data or recreate the expense "
+                    "with line items."
+                ),
+            )
         return await load_expense_shares(db, expense_id), None
 
+    tax_components = await _load_tax_components(db, expense_id)
+    discount = discount_spec_from_expense(expense)
+    gst = gst_spec_from_orm(expense, lines, tax_components)
     try:
-        result = compute_shares(lines_from_orm(lines), int(expense.total_minor))
+        result = compute_allocation(
+            lines_from_orm(lines),
+            int(expense.total_minor),
+            discount=discount,
+            gst=gst,
+        )
     except SplitError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
-    return result.shares, result
+    shares = {uid: breakdown.total_minor for uid, breakdown in result.members.items()}
+    return shares, result
 
 
 def _last_known_invoice_total(expense: Expense) -> int | None:
@@ -246,6 +318,96 @@ async def _assert_active_group_members(
                 f"of group {group_id}."
             ),
         )
+
+
+async def _recompute_gst_review_issues(
+    db: AsyncSession, expense: Expense
+) -> list[GstIssue]:
+    """
+    Recompute the combined GST-arithmetic (app.domain.gst.
+    check_gst_invariants) + discount-consistency (check_discount_consistency)
+    issue set against the CURRENTLY PERSISTED line items / tax components /
+    discount snapshot of `expense` -- the same computation confirm_expense
+    uses as its final gate (factored out here, verbatim, so
+    patch_expense_discount, accept_computed_total, and
+    apply_vendor_discount_snapshot's callers can all set/clear
+    `expense.needs_review` from ONE authoritative definition instead of
+    re-deriving it ad hoc at each call site).
+
+    Does NOT itself mutate `expense.needs_review` -- callers decide (e.g.
+    confirm_expense additionally folds in the PERSISTED needs_review flag
+    itself as its own separate issue, which would be circular to do in
+    here).
+
+    M6-M8 total-reconciliation ruling, item 2: this is also the "recompute
+    the full invariant set rather than blind-clearing" mechanism the ruling
+    calls for -- any caller that wants to potentially CLEAR needs_review
+    (patch_expense_discount, accept_computed_total) does
+    `expense.needs_review = bool(await _recompute_gst_review_issues(...))`,
+    which is only ever False when every currently known issue (not just the
+    one that motivated the caller) has been resolved.
+
+    Frozen-shares (M1) expenses: a discount snapshot on this flow is
+    STRUCTURALLY UNCONSUMABLE -- _resolve_allocation's frozen-path branch
+    never runs compute_allocation and returns the frozen shares verbatim,
+    so no discount snapshot on such an expense ever subtracts a single
+    paisa from what is actually posted to the ledger (that mismatch is
+    already caught by _resolve_allocation's own, more specific 422 --
+    "shares were frozen at create time ... cannot consume them"). Comparing
+    the declared total against a discount that can never apply would be
+    meaningless (and would duplicate/shadow that more specific guard with a
+    less specific one), so `effective_discount_amount` is forced to 0 here
+    whenever `is_frozen_shares(lines)` is True, regardless of what discount
+    snapshot happens to be sitting on the row.
+    """
+    expense_id = uuid.UUID(str(expense.id))
+    lines = await _load_lines_with_assignments(db, expense_id)
+    tax_components = await _load_tax_components(db, expense_id)
+    item_totals = base_item_totals_minor(lines, expense.gst_mode)
+    discount_line_items_total_abs = abs(
+        sum(int(li.total_minor) for li in lines if li.kind == LineItemKind.discount)
+    )
+    has_discount_line_items = any(li.kind == LineItemKind.discount for li in lines)
+    has_tax_kind_line_items = any(li.kind == LineItemKind.tax for li in lines)
+    line_gst_amounts = [
+        int(li.gst_amount_minor) for li in lines if li.gst_amount_minor is not None
+    ]
+    tax_component_amounts = [int(tc.amount_minor) for tc in tax_components]
+    if is_frozen_shares(lines):
+        effective_discount_amount = 0
+    else:
+        discount_spec_for_check = discount_spec_from_expense(expense)
+        if discount_spec_for_check is not None:
+            effective_discount_amount, _ = resolve_discount_amount(
+                discount_spec_for_check, item_totals
+            )
+        else:
+            effective_discount_amount = discount_line_items_total_abs
+    gst_check = check_gst_invariants(
+        gst_mode=expense.gst_mode,
+        item_totals_minor=item_totals,
+        discount_amount_minor=effective_discount_amount,
+        tax_component_amounts_minor=tax_component_amounts,
+        invoice_total_minor=int(expense.total_minor),
+        line_gst_amounts_minor=line_gst_amounts,
+        has_line_gst_data=bool(line_gst_amounts),
+        has_component_data=bool(tax_component_amounts),
+        has_tax_kind_line_items=has_tax_kind_line_items,
+    )
+    discount_issues = check_discount_consistency(
+        discount_source=expense.discount_source,
+        discount_type=expense.discount_type,
+        discount_value_minor=(
+            int(expense.discount_value_minor)
+            if expense.discount_value_minor is not None
+            else None
+        ),
+        discount_percent=expense.discount_percent,
+        base_subtotal_minor=item_totals,
+        discount_line_items_total_abs_minor=discount_line_items_total_abs,
+        has_discount_line_items=has_discount_line_items,
+    )
+    return list(gst_check.issues) + discount_issues
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +516,20 @@ async def create_expense(
 
     await db.flush()  # populate line item IDs
 
+    # M6 item 3: manual expenses are created 'parsed' (a draft, never
+    # 'confirmed' -- see the parse_status override above), so a vendor rule
+    # is eligible to auto-apply here too, same as the PDF pipeline path.
+    # M6 item 5 (finance-reviewer HIGH): but ONLY on the item-level flow.
+    # The explicit-shares (M1) flow freezes share_minor at create time and
+    # its confirm path returns those frozen shares verbatim, never running
+    # compute_allocation -- a discount snapshot written here would be
+    # silently inert (expense confirms at full price with a populated
+    # discount_* snapshot and no needs_review signal). Structurally
+    # unconsumable snapshot => never write it. _resolve_allocation's frozen
+    # path carries the matching confirm-time guard as defense in depth.
+    if item_level_flow:
+        await apply_vendor_discount_snapshot(db, expense)
+
     if not item_level_flow:
         # Reload line items to get IDs.
         result = await db.execute(
@@ -380,7 +556,10 @@ async def create_expense(
     # Return with line_items loaded.
     result2 = await db.execute(
         select(Expense)
-        .options(selectinload(Expense.line_items))
+        .options(
+            selectinload(Expense.line_items).selectinload(ExpenseLineItem.assignments),
+            selectinload(Expense.tax_components),
+        )
         .where(Expense.id == expense.id)
     )
     return result2.scalar_one()
@@ -463,7 +642,10 @@ async def upload_expense_pdf(
 
     result = await db.execute(
         select(Expense)
-        .options(selectinload(Expense.line_items))
+        .options(
+            selectinload(Expense.line_items).selectinload(ExpenseLineItem.assignments),
+            selectinload(Expense.tax_components),
+        )
         .where(Expense.id == expense.id)
     )
     return result.scalar_one()
@@ -541,10 +723,39 @@ async def correct_line_items(
     §4 — "M4 will need something like PUT /expenses/{id}/line-items that
     re-runs validate_extraction server-side ... before allowing the
     transition"). Re-runs the same deterministic validation engine used by
-    the M3 pipeline; on success the expense transitions needs_review ->
-    parsed and line items are fully replaced (matches the pipeline's own
-    "a re-parse replaces, never patches" contract). The ledger is never
-    touched here (invariant #2 — confirmation is a separate, later step).
+    the M3 pipeline (base arithmetic invariants); on success the expense
+    transitions needs_review -> parsed and line items are fully replaced
+    (matches the pipeline's own "a re-parse replaces, never patches"
+    contract). The ledger is never touched here (invariant #2 — confirmation
+    is a separate, later step).
+
+    M6 item 4 (CRITICAL fix, finance-logic-reviewer): a correction can
+    change item/discount totals enough to break (or repair) GST
+    reconciliation, so after replacing line items this endpoint ALSO
+    re-runs the GST arithmetic check (app/domain/gst.py) against the NEW
+    line items and re-derives `expense.needs_review` from a single combined
+    outcome (base-arithmetic ok AND gst ok) — never just the GST piece in
+    isolation, and never left stale. This works in both directions: a
+    correction can newly introduce a GST break (False -> True) or can be
+    exactly what repairs a previously GST-flagged expense (True -> False,
+    which is this endpoint's actual purpose for GST-caused needs_review).
+
+    `expense_tax_components` rows are intentionally left UNTOUCHED by this
+    endpoint (LineItemsCorrection carries no tax-component field — see
+    app/api/schemas.py) — they are simply re-validated against the NEW line
+    items on every correction, so a correction that leaves them stale-but-
+    still-consistent passes clean, and one that leaves them stale-and-now-
+    inconsistent flips needs_review=True rather than going unchecked.
+
+    NOTE on parse_status vs needs_review: parse_status's needs_review ->
+    parsed transition is (and remains) gated ONLY on the base arithmetic
+    invariant, exactly as it always has been — a GST reconciliation failure
+    does not block this parse_status transition, by the same deliberate
+    design as the extraction pipeline (see
+    app.extraction.validation.validate_gst's docstring: GST issues are kept
+    independent of the parse_status state machine and instead feed the
+    separate `expense.needs_review` boolean, which confirm_expense checks
+    unconditionally as the real backstop).
     """
     result = await db.execute(
         select(Expense).where(Expense.id == expense_id).with_for_update()
@@ -596,6 +807,14 @@ async def correct_line_items(
             ),
         )
 
+    # M6 item 4: expense_tax_components are left UNTOUCHED by this endpoint
+    # (see docstring above) but must still be re-validated against the NEW
+    # line items below, so load them now.
+    existing_components_result = await db.execute(
+        select(ExpenseTaxComponent).where(ExpenseTaxComponent.expense_id == expense_id)
+    )
+    existing_components = existing_components_result.scalars().all()
+
     candidate_invoice = ExtractedInvoice(
         vendor=expense.vendor,
         invoice_date=expense.invoice_date.isoformat() if expense.invoice_date else None,
@@ -613,6 +832,21 @@ async def correct_line_items(
             for li_in in payload.line_items
         ],
         invoice_total_minor=invoice_total_minor,
+        # M6 item 4: gst_mode is immutable once set and is NOT part of this
+        # correction payload (LineItemsCorrection carries no such field), so
+        # reuse the expense's existing value; tax_components are likewise
+        # untouched by this endpoint (decision (ii), see docstring above) —
+        # reused as-is here purely so validate_gst() below can re-check them
+        # against the NEW line items, not to imply they are being rewritten.
+        gst_mode=expense.gst_mode,
+        tax_components=[
+            ExtractedTaxComponent(
+                name=tc.name,
+                rate=tc.rate,
+                amount_minor=int(tc.amount_minor),
+            )
+            for tc in existing_components
+        ],
     )
     validation = validate_extraction(candidate_invoice)
     if not validation.ok:
@@ -627,8 +861,25 @@ async def correct_line_items(
             },
         )
 
-    # Passed validation — replace line items (full replace, not a patch) and
-    # transition needs_review -> parsed.
+    # M6 item 4 (CRITICAL fix): re-run the GST arithmetic check against the
+    # SAME candidate (new line items + existing, untouched tax components)
+    # used above, and derive one combined needs_review outcome from BOTH the
+    # base arithmetic invariant (validation, already known ok here — this
+    # endpoint hard-rejects a base-arithmetic failure above rather than
+    # ever persisting one as a soft needs_review flag, preserving pre-item-4
+    # behavior) and the fresh GST invariant. This is what makes the
+    # transition below correct in BOTH directions: it can newly set
+    # needs_review=True (a correction that breaks GST reconciliation) or
+    # clear a previously-True GST-caused needs_review back to False (a
+    # correction that repairs it) -- it is never left stale.
+    gst_check = validate_gst(candidate_invoice)
+    combined_ok = validation.ok and gst_check.ok
+
+    # Passed base validation — replace line items (full replace, not a
+    # patch) and transition needs_review -> parsed. parse_status's
+    # transition is gated ONLY on the base arithmetic invariant, exactly as
+    # it always has been (see docstring above); `combined_ok` only affects
+    # the separate `expense.needs_review` boolean below.
     existing = await db.execute(
         select(ExpenseLineItem).where(ExpenseLineItem.expense_id == expense_id)
     )
@@ -663,12 +914,16 @@ async def correct_line_items(
         li.total_minor for li in payload.line_items if li.kind == LineItemKind.item
     )
     expense.parse_status = ParseStatus.parsed
+    expense.needs_review = not combined_ok
 
     await db.commit()
 
     result2 = await db.execute(
         select(Expense)
-        .options(selectinload(Expense.line_items))
+        .options(
+            selectinload(Expense.line_items).selectinload(ExpenseLineItem.assignments),
+            selectinload(Expense.tax_components),
+        )
         .where(Expense.id == expense_id)
     )
     return result2.scalar_one()
@@ -711,7 +966,12 @@ async def confirm_expense(
         # Already confirmed — idempotent return without re-posting.
         result2 = await db.execute(
             select(Expense)
-            .options(selectinload(Expense.line_items))
+            .options(
+                selectinload(Expense.line_items).selectinload(
+                    ExpenseLineItem.assignments
+                ),
+                selectinload(Expense.tax_components),
+            )
             .where(Expense.id == expense_id)
         )
         return result2.scalar_one()
@@ -729,6 +989,52 @@ async def confirm_expense(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Expense is not in a confirmable state",
+        )
+
+    # M6 item 4 (CRITICAL fix, finance-logic-reviewer): recompute the GST/tax
+    # arithmetic check UNCONDITIONALLY on every confirm attempt, never gated
+    # on expense.needs_review. needs_review is a UX/display signal set by
+    # the extraction pipeline and the line-item correction endpoint (see
+    # correct_line_items below); it must NOT be the security boundary here,
+    # because a mutation path could in principle leave needs_review stale or
+    # unset relative to the currently persisted rows (that was exactly the
+    # bug: correct_line_items previously never touched needs_review at all,
+    # so a correction that broke GST reconciliation sailed through this
+    # gate). Recomputing from the CURRENTLY PERSISTED line items / tax
+    # components on every confirm — cheap, pure arithmetic, no I/O beyond
+    # two SELECTs already needed elsewhere in this function — is the actual
+    # last line of defense and is correct regardless of how needs_review got
+    # (mis)set.
+    #
+    # M6-M8 total-reconciliation ruling, item 1/2: this recompute now also
+    # includes the total_mismatch_with_discount invariant (gst_mode 'none'/
+    # 'item_level') via the SAME shared helper other mutation routes use to
+    # set/clear needs_review -- see _recompute_gst_review_issues.
+    all_issues = await _recompute_gst_review_issues(db, expense)
+
+    # M6 item 5 (defense in depth): ALSO block on the PERSISTED needs_review
+    # flag, with its OWN distinct, differently-worded issue -- alongside the
+    # unconditional recomputation above, never instead of it. If the
+    # recomputed check above ever regresses (a future bug reintroduces a gap
+    # like the one item 4 fixed in correct_line_items), this flag still
+    # blocks confirmation on its own, and this distinct message tells us
+    # which layer caught it; conversely, when the recomputed check ALSO
+    # fails, both issues are named together rather than this one masking the
+    # other's specific invariant name.
+    if expense.needs_review:
+        all_issues.append(
+            GstIssue(
+                "expense_flagged_needs_review",
+                "Expense is flagged needs_review=True and cannot be "
+                "confirmed until it is reviewed/corrected.",
+            )
+        )
+
+    if all_issues:
+        detail = "; ".join(f"{i.code}: {i.message}" for i in all_issues)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Expense needs review before it can be confirmed: {detail}",
         )
 
     # M1: enforce group membership on confirm too (a member may have left since
@@ -752,8 +1058,12 @@ async def confirm_expense(
 
         await _assert_active_group_members(db, group_id, users_to_check)
 
-    # Resolve shares: frozen M1 shares, or M2 splitting engine over line items.
-    shares, split_result = await _resolve_shares(db, expense)
+    # Resolve shares: frozen M1 shares, or M2 splitting engine (item 5:
+    # compute_allocation, discount+GST layered over compute_shares) over
+    # line items. `shares` fed to the ledger below are each member's
+    # ALLOCATION total_minor (base + discount + GST) when an AllocationResult
+    # is returned — this is the single place discount/GST become real money.
+    shares, allocation_result = await _resolve_allocation(db, expense)
 
     # post_expense_to_ledger validates sum == total_minor and posts entries.
     try:
@@ -767,9 +1077,12 @@ async def confirm_expense(
     # historical balances never shift if splitting rules change later).
     # Lines that were allocated without explicit assignment rows (cart fees,
     # discounts, inherited refunds) get audit rows so the frozen shares of an
-    # expense always sum to total_minor.
-    if split_result is not None:
+    # expense always sum to total_minor. Unchanged from pre-item-5 behaviour:
+    # base_result.line_allocations is exactly what plain compute_shares would
+    # have produced over the (possibly narrowed, item 5) base line set.
+    if allocation_result is not None:
         lines = await _load_lines_with_assignments(db, expense_id)
+        split_result = allocation_result.base_result
         for li in lines:
             allocation = split_result.line_allocations.get(uuid.UUID(str(li.id)), {})
             existing_users: set[uuid.UUID] = set()
@@ -788,11 +1101,32 @@ async def confirm_expense(
                         )
                     )
 
+        # M6 item 5: persist the per-member discount/GST breakdown, written
+        # ONLY here, inside the confirm transaction, after parse_status has
+        # already flipped to 'confirmed' (post_expense_to_ledger above sets
+        # it) — covered by reject_mutation_if_expense_confirmed's existing
+        # same-transaction (xmin) escape hatch, exactly like the
+        # item_assignments freezing above.
+        for user_id, breakdown in allocation_result.members.items():
+            db.add(
+                ExpenseMemberAllocation(
+                    expense_id=expense.id,
+                    user_id=user_id,
+                    base_minor=breakdown.base_minor,
+                    discount_minor=breakdown.discount_minor,
+                    gst_minor=breakdown.gst_minor,
+                    total_minor=breakdown.total_minor,
+                )
+            )
+
     await db.commit()
 
     result3 = await db.execute(
         select(Expense)
-        .options(selectinload(Expense.line_items))
+        .options(
+            selectinload(Expense.line_items).selectinload(ExpenseLineItem.assignments),
+            selectinload(Expense.tax_components),
+        )
         .where(Expense.id == expense_id)
     )
     return result3.scalar_one()
@@ -883,6 +1217,344 @@ async def put_assignments(
     return created
 
 
+@router.post(
+    "/{expense_id}/assignments/bulk",
+    response_model=list[AssignmentResponse],
+    status_code=status.HTTP_200_OK,
+)
+async def bulk_put_assignments(
+    expense_id: uuid.UUID,
+    payload: BulkAssignmentIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ItemAssignment]:
+    """
+    Convenience bulk-assign for the assignment UI (M6-M8 item 7a): assign
+    `member_ids` (equal weight=1 each) to every line item in `item_ids`.
+
+    Replace-set semantics PER ITEM -- mirrors PUT /expenses/{id}/assignments'
+    validation and auth exactly (auth via
+    _assert_actor_authorized_for_expense, confirmed/voided 409s BEFORE the DB
+    trigger backstop, unknown-line-id 422, group-membership check on
+    member_ids), the only difference being the item_ids/member_ids ->
+    per-item replace expansion instead of an explicit (line_item_id,
+    user_id, weight) list. Only the assignments of the TARGETED items are
+    replaced; other line items' assignments are left untouched (unlike PUT
+    .../assignments, which replaces every assignment on the expense).
+
+    Idempotent: calling twice with the same payload produces the exact same
+    final rows (delete-then-recreate of only the targeted items each time).
+
+    Refund-kind lines: NOT filtered out here, matching
+    PUT /expenses/{id}/assignments' existing behaviour exactly -- that route
+    only checks that a line_item_id belongs to this expense (via `line_ids`
+    membership), with no kind-based skip/error. A refund line can be
+    assigned to like any other line by both routes. Note: directly
+    assigning a refund line overrides its default parent-inheritance in
+    compute_shares (an unassigned refund line inherits the parent item's
+    assignment ratios; an explicitly assigned one uses its own assignments
+    instead) -- existing semantics, newly reachable in bulk here.
+    """
+    result = await db.execute(select(Expense).where(Expense.id == expense_id))
+    expense = result.scalar_one_or_none()
+    if expense is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found"
+        )
+    await _assert_actor_authorized_for_expense(db, expense, current_user.id)
+    if expense.parse_status == ParseStatus.confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot modify assignments of a confirmed expense",
+        )
+    if expense.status == ExpenseStatus.voided:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot modify assignments of a voided expense",
+        )
+
+    lines = await _load_lines_with_assignments(db, expense_id)
+    line_by_id = {uuid.UUID(str(li.id)): li for li in lines}
+    unknown = set(payload.item_ids) - line_by_id.keys()
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Line items {[str(x) for x in unknown]} do not belong to this expense",
+        )
+
+    # Dedupe while preserving order -- a repeated id in either list is
+    # collapsed to one row, not a duplicate-assignment error (bulk-assign is
+    # a set operation by construction, not a list of discrete pairs like
+    # AssignmentsPut, so there is no meaningful "duplicate" to reject here).
+    item_ids = list(dict.fromkeys(payload.item_ids))
+    member_ids = list(dict.fromkeys(payload.member_ids))
+
+    if expense.group_id is not None:
+        await _assert_active_group_members(
+            db, uuid.UUID(str(expense.group_id)), set(member_ids)
+        )
+
+    # Replace: delete existing assignment rows on ONLY the targeted items
+    # (pre-confirmation, so no frozen audit data is lost -- share_minor is
+    # only written at confirm time in this flow, same as AssignmentsPut).
+    for item_id in item_ids:
+        for existing in list(line_by_id[item_id].assignments):
+            await db.delete(existing)
+    await db.flush()
+
+    created: list[ItemAssignment] = []
+    for item_id in item_ids:
+        for user_id in member_ids:
+            row = ItemAssignment(
+                line_item_id=item_id,
+                user_id=user_id,
+                weight=1,
+                share_minor=None,
+            )
+            db.add(row)
+            created.append(row)
+
+    await db.commit()
+    return created
+
+
+@router.patch("/{expense_id}/discount", response_model=ExpenseResponse)
+async def patch_expense_discount(
+    expense_id: uuid.UUID,
+    payload: ExpenseDiscountPatch,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Expense:
+    """
+    Set or clear an expense's discount snapshot (M6-M8 item 7a, draft
+    expenses only -- i.e. parse_status != 'confirmed').
+
+    Set (`discount_type` given): persists directly to the item-3 snapshot
+    columns with discount_source='manual', discount_rule_id=NULL. Manual
+    always wins over any subsequent vendor-rule auto-match (existing
+    precedence in app.domain.vendor_discount.apply_vendor_discount_snapshot
+    -- never auto-overwritten afterward).
+
+    Clear (`discount_type=None`): nulls out the snapshot columns, then
+    RE-RUNS vendor-rule auto-matching and persists whatever it finds (or
+    leaves the snapshot empty if nothing matches). The re-match subtotal is
+    the OQ-2 fresh-computed base subtotal
+    (app.domain.gst.base_item_totals_minor over the CURRENTLY PERSISTED line
+    items -- items+fees+tip+refunds, excluding tax/discount lines), passed
+    via apply_vendor_discount_snapshot's subtotal_override_minor -- NEVER
+    expense.subtotal_minor, which can be stale (see that function's
+    docstring / the OQ-2 fix in app.domain.vendor_discount).
+
+    409 if the expense is already confirmed (guards BEFORE the DB trigger
+    backstop, same convention as every other mutation route in this module)
+    or voided.
+
+    422 if every existing assignment already carries a frozen share_minor
+    (the same explicit-shares/M1 condition _resolve_allocation's frozen-path
+    guard checks) -- a discount snapshot on such an expense is structurally
+    unconsumable (finance-reviewer finding 2: that flow's confirm path
+    returns frozen shares verbatim and never runs compute_allocation), so we
+    refuse to write one rather than let it silently rot inert.
+    """
+    result = await db.execute(
+        select(Expense).where(Expense.id == expense_id).with_for_update()
+    )
+    expense = result.scalar_one_or_none()
+    if expense is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found"
+        )
+    await _assert_actor_authorized_for_expense(db, expense, current_user.id)
+    if expense.parse_status == ParseStatus.confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot modify the discount of a confirmed expense",
+        )
+    if expense.status == ExpenseStatus.voided:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot modify the discount of a voided expense",
+        )
+
+    lines = await _load_lines_with_assignments(db, expense_id)
+    if is_frozen_shares(lines):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "This expense's shares were frozen at create time "
+                "(explicit-shares flow) and cannot consume a discount "
+                "snapshot -- see app.api.expenses._resolve_allocation. "
+                "Recreate the expense with line items instead."
+            ),
+        )
+
+    if payload.discount_type is None:
+        # Clear -- then re-run vendor-rule auto-matching against the fresh
+        # base subtotal (OQ-2 contract, see docstring above).
+        expense.discount_type = None
+        expense.discount_value_minor = None
+        expense.discount_percent = None
+        expense.discount_threshold_minor = None
+        expense.discount_source = None
+        expense.discount_rule_id = None
+        fresh_subtotal = base_item_totals_minor(lines, expense.gst_mode)
+        await apply_vendor_discount_snapshot(
+            db, expense, subtotal_override_minor=fresh_subtotal
+        )
+    else:
+        # Set manual -- always wins, never auto-overwritten afterward.
+        expense.discount_type = payload.discount_type
+        expense.discount_value_minor = payload.discount_value_minor
+        expense.discount_percent = payload.discount_percent
+        expense.discount_threshold_minor = payload.discount_threshold_minor
+        expense.discount_source = DiscountSource.manual
+        expense.discount_rule_id = None
+
+    # M6-M8 total-reconciliation ruling, item 2: recompute the FULL issue set
+    # (never blind-clear) after every mutation of the discount snapshot --
+    # this fires on both branches above, so it can both newly SET
+    # needs_review=True (a manual discount that de-reconciles total_minor;
+    # apply_vendor_discount_snapshot's own tentative True on the clear
+    # branch is superseded by this authoritative recompute either way) and
+    # CLEAR a previously-True needs_review back to False once every
+    # currently known issue -- not just the one that motivated this PATCH --
+    # has been resolved.
+    review_issues = await _recompute_gst_review_issues(db, expense)
+    expense.needs_review = bool(review_issues)
+
+    await db.commit()
+
+    result2 = await db.execute(
+        select(Expense)
+        .options(
+            selectinload(Expense.line_items).selectinload(ExpenseLineItem.assignments),
+            selectinload(Expense.tax_components),
+        )
+        .where(Expense.id == expense_id)
+    )
+    return result2.scalar_one()
+
+
+@router.post("/{expense_id}/accept-computed-total", response_model=ExpenseResponse)
+async def accept_computed_total(
+    expense_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Expense:
+    """
+    M6-M8 total-reconciliation ruling, item 3: recompute the RECONCILED
+    total (base item totals minus the effective discount, plus the tax
+    component sum for gst_mode='invoice_exclusive') from the expense's
+    CURRENTLY PERSISTED line items / discount snapshot / tax components,
+    and overwrite expense.total_minor with it.
+
+    This is the ONLY sanctioned way `total_minor` ever changes on a draft
+    expense to fix a total_mismatch_with_discount (or an
+    invoice_exclusive/invoice_inclusive discount-vs-total) invariant
+    failure -- the ruling's total_minor-stays-user-declared invariant means
+    nothing else may silently rewrite it; this endpoint is an explicit,
+    user-initiated "accept the computed number" action.
+
+    Formula (mirrors app.domain.splitting.compute_allocation's own stages,
+    but only the two figures needed here -- it does not run the full
+    allocator):
+        reconciled_total = base_item_totals_minor(gst_mode)
+                            - effective_discount (resolve_discount_amount,
+                              the same threshold/type/cap rule the
+                              allocator's own discount stage uses)
+                            + Σ(tax component amounts), ONLY for
+                              gst_mode='invoice_exclusive' (the only mode
+                              whose GST is genuinely additive on top of the
+                              base -- 'invoice_inclusive'/'item_level'/'none'
+                              embed or omit GST, so nothing is added for
+                              them; see MemberBreakdown's docstring).
+
+    Guards, in the SAME order confirm_expense/patch_expense_discount use:
+      404 -> auth (_assert_actor_authorized_for_expense) -> 409 confirmed ->
+      409 voided -> 422 frozen explicit-shares (app.domain.splitting.
+      is_frozen_shares -- the SAME predicate _resolve_allocation and
+      patch_expense_discount's guards use) -> 422 if the reconciled total
+      would be <= 0 (expenses.total_minor's own CHECK constraint).
+
+    After updating total_minor, re-runs the FULL invariant recompute
+    (_recompute_gst_review_issues) and sets needs_review from that -- never
+    blind-clears it (per item 2's semantics): if some OTHER issue still
+    fails (e.g. a stale/inconsistent tax component), needs_review stays
+    True even though the total itself is now reconciled.
+    """
+    result = await db.execute(
+        select(Expense).where(Expense.id == expense_id).with_for_update()
+    )
+    expense = result.scalar_one_or_none()
+    if expense is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found"
+        )
+    await _assert_actor_authorized_for_expense(db, expense, current_user.id)
+    if expense.parse_status == ParseStatus.confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot modify the total of a confirmed expense",
+        )
+    if expense.status == ExpenseStatus.voided:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot modify the total of a voided expense",
+        )
+
+    lines = await _load_lines_with_assignments(db, expense_id)
+    if is_frozen_shares(lines):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "This expense's shares were frozen at create time "
+                "(explicit-shares flow) -- there is no discount/GST "
+                "allocation to reconcile a total against. See "
+                "app.api.expenses._resolve_allocation."
+            ),
+        )
+
+    tax_components = await _load_tax_components(db, expense_id)
+    item_totals = base_item_totals_minor(lines, expense.gst_mode)
+    discount_spec = discount_spec_from_expense(expense)
+    if discount_spec is not None:
+        applied_discount, _inert = resolve_discount_amount(discount_spec, item_totals)
+    else:
+        applied_discount = 0
+    tax_component_sum = sum(int(tc.amount_minor) for tc in tax_components)
+    if expense.gst_mode == GstMode.invoice_exclusive:
+        reconciled_total = item_totals - applied_discount + tax_component_sum
+    else:
+        reconciled_total = item_totals - applied_discount
+
+    if reconciled_total <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Reconciled total ({reconciled_total}) would not be "
+                "positive (expenses.total_minor must be > 0) -- fix the "
+                "line items or discount instead of accepting this total."
+            ),
+        )
+
+    expense.total_minor = reconciled_total
+
+    review_issues = await _recompute_gst_review_issues(db, expense)
+    expense.needs_review = bool(review_issues)
+
+    await db.commit()
+
+    result2 = await db.execute(
+        select(Expense)
+        .options(
+            selectinload(Expense.line_items).selectinload(ExpenseLineItem.assignments),
+            selectinload(Expense.tax_components),
+        )
+        .where(Expense.id == expense_id)
+    )
+    return result2.scalar_one()
+
+
 @router.get("/{expense_id}/shares", response_model=SharesResponse)
 async def get_shares(
     expense_id: uuid.UUID,
@@ -903,8 +1575,219 @@ async def get_shares(
         )
     await _assert_actor_authorized_for_expense(db, expense, current_user.id)
 
-    shares, _ = await _resolve_shares(db, expense)
+    shares, _ = await _resolve_allocation(db, expense)
     return SharesResponse(expense_id=expense_id, shares=shares)
+
+
+@router.get(
+    "/{expense_id}/allocation-preview",
+    response_model=AllocationPreviewResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_allocation_preview(
+    expense_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AllocationPreviewResponse:
+    """
+    M6 item 5: preview (draft) or read back (confirmed) an expense's
+    per-member discount + GST breakdown. NEVER writes.
+
+    Draft: runs compute_allocation() live. A SplitError (unassigned lines,
+    etc.) is surfaced as a "problems" entry rather than a 500.
+    expense.needs_review==True and discount_recorded_but_inert==True are
+    also surfaced (as a problem and an informational note, respectively) so
+    neither state is silently invisible to a client only looking at
+    `members`.
+
+    Confirmed: reads the persisted expense_member_allocations rows written
+    at confirmation time -- NEVER re-runs compute_allocation post-
+    confirmation (those numbers are frozen, exactly like
+    item_assignments.share_minor). A confirmed expense from BEFORE this
+    feature existed (no persisted rows) gets a minimal, non-persisted
+    synthesis from its frozen item_assignments.share_minor values instead
+    of crashing -- see module docstring in alembic/versions/0011_*.py for
+    why no real backfill migration was written for this case.
+    """
+    result = await db.execute(select(Expense).where(Expense.id == expense_id))
+    expense = result.scalar_one_or_none()
+    if expense is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found"
+        )
+    await _assert_actor_authorized_for_expense(db, expense, current_user.id)
+
+    if expense.parse_status == ParseStatus.confirmed:
+        rows_result = await db.execute(
+            select(ExpenseMemberAllocation).where(
+                ExpenseMemberAllocation.expense_id == expense_id
+            )
+        )
+        rows = list(rows_result.scalars().all())
+        if rows:
+            members = [
+                MemberBreakdownResponse(
+                    user_id=uuid.UUID(str(r.user_id)),
+                    base_minor=int(r.base_minor),
+                    discount_minor=int(r.discount_minor),
+                    gst_minor=int(r.gst_minor),
+                    total_minor=int(r.total_minor),
+                )
+                for r in rows
+            ]
+            applied_discount = -sum(m.discount_minor for m in members)
+            exclusive_gst = (
+                sum(m.gst_minor for m in members)
+                if expense.gst_mode == GstMode.invoice_exclusive
+                else 0
+            )
+            item_level_gst = (
+                sum(m.gst_minor for m in members)
+                if expense.gst_mode == GstMode.item_level
+                else 0
+            )
+            subtotal = sum(m.base_minor for m in members) + item_level_gst
+            return AllocationPreviewResponse(
+                expense_id=expense_id,
+                confirmed=True,
+                members=members,
+                subtotal_minor=subtotal,
+                applied_discount_minor=applied_discount,
+                exclusive_gst_minor=exclusive_gst,
+                discount_recorded_but_inert=False,
+            )
+        # Legacy confirmed expense (pre-item-5): synthesize a minimal,
+        # non-persisted, base-only breakdown from frozen share_minor values.
+        legacy_shares = await load_expense_shares(db, expense_id)
+        legacy_members = [
+            MemberBreakdownResponse(
+                user_id=uid,
+                base_minor=amount,
+                discount_minor=0,
+                gst_minor=0,
+                total_minor=amount,
+            )
+            for uid, amount in legacy_shares.items()
+        ]
+        return AllocationPreviewResponse(
+            expense_id=expense_id,
+            confirmed=True,
+            members=legacy_members,
+            subtotal_minor=sum(m.total_minor for m in legacy_members),
+            applied_discount_minor=0,
+            exclusive_gst_minor=0,
+            discount_recorded_but_inert=False,
+        )
+
+    # Draft: live preview, never persisted.
+    problems: list[AllocationProblem] = []
+    if expense.needs_review:
+        problems.append(
+            AllocationProblem(
+                code="needs_review",
+                message=(
+                    "Expense is flagged needs_review=True; confirmation is "
+                    "blocked until it is reviewed/corrected."
+                ),
+            )
+        )
+
+    lines = await _load_lines_with_assignments(db, expense_id)
+
+    # M6-M8 total-reconciliation ruling, API GAPS item 8: detect unassigned
+    # base lines BEFORE calling compute_allocation, which currently raises a
+    # vague SplitError ("Expense has no item-level lines" / "Line ... has no
+    # assignments") for this exact case -- structure it instead so the
+    # client can render "N items need assignment" and deep-link to them by
+    # line_id, without parsing a message string. Scoped to LINE-LEVEL lines
+    # (app.domain.splitting.is_item_level -- items, refunds, item-scoped
+    # discounts) that carry NO assignments of their own AND have no
+    # parent_line_id to inherit from (a refund/item-discount line with a
+    # parent legitimately has zero assignments of its own by design -- see
+    # compute_shares' inheritance step -- so it is never "unassigned" here).
+    # Cart-level lines (fees, invoice-scoped discounts/tax) are excluded --
+    # they are spread across participants by `allocation`, never requiring
+    # their own assignment rows.
+    #
+    # Known narrow false negative (finance-reviewer LOW): a line whose
+    # parent_line_id points at an UNASSIGNED CART-LEVEL line (not an
+    # item-level parent) is skipped here -- malformed data (parents are
+    # item lines by construction), and confirm's compute_allocation still
+    # 422s on it via SplitError; the preview just can't name it nicely.
+    line_inputs = lines_from_orm(lines)
+    unassigned_lines = [
+        li
+        for li in line_inputs
+        if is_item_level(li) and not li.assignments and li.parent_line_id is None
+    ]
+    if unassigned_lines:
+        problems.append(
+            AllocationProblem(
+                code="unassigned_lines",
+                message=(
+                    f"{len(unassigned_lines)} item-level line(s) have no "
+                    "assignments and no parent line to inherit from -- "
+                    "assign them before this expense can be confirmed."
+                ),
+                count=len(unassigned_lines),
+                line_ids=[li.line_id for li in unassigned_lines],
+            )
+        )
+        return AllocationPreviewResponse(
+            expense_id=expense_id, confirmed=False, problems=problems
+        )
+
+    try:
+        all_assignments = [a for li in lines for a in li.assignments]
+        if not all_assignments:
+            raise SplitError("No item assignments found for this expense")
+        tax_components = await _load_tax_components(db, expense_id)
+        discount = discount_spec_from_expense(expense)
+        gst = gst_spec_from_orm(expense, lines, tax_components)
+        result_alloc = compute_allocation(
+            line_inputs,
+            int(expense.total_minor),
+            discount=discount,
+            gst=gst,
+        )
+    except SplitError as exc:
+        problems.append(AllocationProblem(code="split_error", message=str(exc)))
+        return AllocationPreviewResponse(
+            expense_id=expense_id, confirmed=False, problems=problems
+        )
+
+    if result_alloc.discount_recorded_but_inert:
+        problems.append(
+            AllocationProblem(
+                code="discount_recorded_but_inert",
+                message=(
+                    "A discount snapshot is present but the current base "
+                    "subtotal is below its threshold, so it contributed 0 "
+                    "to this preview."
+                ),
+            )
+        )
+
+    members = [
+        MemberBreakdownResponse(
+            user_id=uid,
+            base_minor=b.base_minor,
+            discount_minor=b.discount_minor,
+            gst_minor=b.gst_minor,
+            total_minor=b.total_minor,
+        )
+        for uid, b in result_alloc.members.items()
+    ]
+    return AllocationPreviewResponse(
+        expense_id=expense_id,
+        confirmed=False,
+        members=members,
+        subtotal_minor=result_alloc.subtotal_minor,
+        applied_discount_minor=result_alloc.applied_discount_minor,
+        exclusive_gst_minor=result_alloc.exclusive_gst_minor,
+        discount_recorded_but_inert=result_alloc.discount_recorded_but_inert,
+        problems=problems,
+    )
 
 
 @router.post(
@@ -960,10 +1843,42 @@ async def create_refund(
         if already is not None:
             result_idem = await db.execute(
                 select(Expense)
-                .options(selectinload(Expense.line_items))
+                .options(
+                    selectinload(Expense.line_items).selectinload(
+                        ExpenseLineItem.assignments
+                    ),
+                    selectinload(Expense.tax_components),
+                )
                 .where(Expense.id == expense_id)
             )
             return result_idem.scalar_one()
+
+    # M6 item 5 (finance-reviewer MEDIUM, conservative guard): this refund
+    # flow caps and splits by RAW item weights / gross line totals -- it
+    # predates the discount+GST allocation layer and does not consult
+    # expense_member_allocations. On an expense whose confirmation actually
+    # applied a whole-invoice discount or allocated GST, a member's real
+    # net-paid amount for the parent line differs from that gross pro-rata,
+    # so this math could refund more (or less) than was actually collected
+    # from them. Until the refund flow is made allocation-aware (tracked
+    # follow-up), refuse rather than move wrong money.
+    alloc_rows_result = await db.execute(
+        select(ExpenseMemberAllocation).where(
+            ExpenseMemberAllocation.expense_id == expense_id
+        )
+    )
+    alloc_rows = list(alloc_rows_result.scalars().all())
+    if any(int(r.discount_minor) != 0 or int(r.gst_minor) != 0 for r in alloc_rows):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This expense was confirmed with an applied discount and/or "
+                "allocated GST; the refund flow is not yet discount/GST-"
+                "aware and cannot guarantee the refund matches what each "
+                "member actually paid. Record a correcting settlement "
+                "instead, or void and recreate the expense."
+            ),
+        )
 
     parent = next(
         (li for li in lines if uuid.UUID(str(li.id)) == payload.parent_line_id),
@@ -1059,7 +1974,10 @@ async def create_refund(
 
     result2 = await db.execute(
         select(Expense)
-        .options(selectinload(Expense.line_items))
+        .options(
+            selectinload(Expense.line_items).selectinload(ExpenseLineItem.assignments),
+            selectinload(Expense.tax_components),
+        )
         .where(Expense.id == expense_id)
     )
     return result2.scalar_one()
@@ -1073,7 +1991,10 @@ async def get_expense(
 ) -> Expense:
     result = await db.execute(
         select(Expense)
-        .options(selectinload(Expense.line_items))
+        .options(
+            selectinload(Expense.line_items).selectinload(ExpenseLineItem.assignments),
+            selectinload(Expense.tax_components),
+        )
         .where(Expense.id == expense_id)
     )
     expense = result.scalar_one_or_none()

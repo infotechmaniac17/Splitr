@@ -22,21 +22,27 @@ export default function TabsLayout() {
         name="dashboard"
         options={{
           title: "Dashboard",
-          tabBarIcon: ({ focused }) => <TabIcon label="\u{1F3E0}" focused={focused} />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="\u{1F3E0}" focused={focused} />
+          ),
         }}
       />
       <Tabs.Screen
         name="groups"
         options={{
           title: "Groups",
-          tabBarIcon: ({ focused }) => <TabIcon label="\u{1F465}" focused={focused} />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="\u{1F465}" focused={focused} />
+          ),
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: "Profile",
-          tabBarIcon: ({ focused }) => <TabIcon label="\u{1F464}" focused={focused} />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="\u{1F464}" focused={focused} />
+          ),
         }}
       />
     </Tabs>

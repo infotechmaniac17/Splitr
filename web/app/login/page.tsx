@@ -105,7 +105,9 @@ export default function LoginPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="rounded-lg border border-gray-300 px-3 py-2 text-base"
-            placeholder={mode === "register" ? "At least 8 characters" : "••••••••"}
+            placeholder={
+              mode === "register" ? "At least 8 characters" : "••••••••"
+            }
           />
         </label>
 

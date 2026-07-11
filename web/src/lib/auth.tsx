@@ -31,9 +31,20 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ApiError, type LoginRequest, type RegisterRequest, type UserResponse } from "@splitr/core";
+import {
+  ApiError,
+  type LoginRequest,
+  type RegisterRequest,
+  type UserResponse,
+} from "@splitr/core";
 import { api } from "@/lib/api";
-import { clearSession, getAccessToken, refreshAccessToken, setSession, subscribeToken } from "@/lib/token-store";
+import {
+  clearSession,
+  getAccessToken,
+  refreshAccessToken,
+  setSession,
+  subscribeToken,
+} from "@/lib/token-store";
 
 interface AuthTokenResponse {
   access_token: string;
@@ -51,7 +62,10 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-async function postAuthRoute(path: string, body: unknown): Promise<AuthTokenResponse> {
+async function postAuthRoute(
+  path: string,
+  body: unknown,
+): Promise<AuthTokenResponse> {
   const res = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -122,7 +136,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSession();
     setUser(null);
     try {
-      await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "same-origin",
+      });
     } catch {
       // Best-effort -- local session is already cleared either way.
     }

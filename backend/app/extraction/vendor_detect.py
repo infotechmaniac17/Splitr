@@ -164,6 +164,22 @@ FEW_SHOT_EXAMPLES: dict[str, str] = {
 }
 
 
+def normalize_vendor_text(s: str) -> str:
+    """
+    Canonicalize a vendor string for equality comparisons: strip surrounding
+    whitespace and lowercase. This is deliberately the ONLY normalization
+    performed anywhere in the codebase for vendor-name matching (extracted
+    from the inline `.strip().lower()` previously duplicated in
+    `build_few_shot_block` below) -- callers that need to compare a
+    resolved vendor (e.g. from `resolve_vendor()`) against a stored pattern
+    (e.g. `VendorDiscountRule.vendor_pattern` in
+    app/domain/vendor_discount.py) should both go through this single
+    function so the definition of "same vendor" never drifts between call
+    sites. No fuzzy matching, no punctuation stripping -- keep it minimal.
+    """
+    return s.strip().lower()
+
+
 def build_few_shot_block(vendor: str | None) -> str | None:
     """
     Return the vendor-specific few-shot example block for prompt injection,
@@ -173,7 +189,7 @@ def build_few_shot_block(vendor: str | None) -> str | None:
     """
     if not vendor:
         return None
-    normalized = vendor.strip().lower()
+    normalized = normalize_vendor_text(vendor)
     for canonical, example in FEW_SHOT_EXAMPLES.items():
         if canonical.lower() == normalized:
             return (

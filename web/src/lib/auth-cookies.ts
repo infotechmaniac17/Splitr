@@ -11,7 +11,10 @@ export const REFRESH_COOKIE_NAME = "splitr_refresh_token";
 // Mirrors backend REFRESH_TOKEN_EXPIRE_DAYS (backend/app/domain/auth.py).
 const REFRESH_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
-export function setRefreshCookie(res: NextResponse, refreshToken: string): void {
+export function setRefreshCookie(
+  res: NextResponse,
+  refreshToken: string,
+): void {
   res.cookies.set(REFRESH_COOKIE_NAME, refreshToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

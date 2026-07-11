@@ -19,7 +19,10 @@ function DashboardContent() {
 
   useEffect(() => {
     if (!user) return;
-    api.getUserBalance(user.id).then(setBalance).catch(() => setBalance(null));
+    api
+      .getUserBalance(user.id)
+      .then(setBalance)
+      .catch(() => setBalance(null));
     setGroups(listRememberedGroups(user.id));
   }, [user]);
 
@@ -46,7 +49,9 @@ function DashboardContent() {
             {balance ? (
               <p
                 className={`mt-1 text-3xl font-bold ${
-                  balance.net_balance_minor >= 0 ? "text-emerald-600" : "text-red-600"
+                  balance.net_balance_minor >= 0
+                    ? "text-emerald-600"
+                    : "text-red-600"
                 }`}
               >
                 <Money minor={balance.net_balance_minor} showPositiveSign />

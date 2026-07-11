@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
+from app.domain.gst import GstCheckResult, base_item_totals_minor, check_gst_invariants
 from app.domain.models import LineItemKind
 
 if TYPE_CHECKING:
@@ -44,6 +45,7 @@ _DATE_FORMATS = (
     "%d-%m-%Y",
     "%d/%m/%Y",
     "%m/%d/%Y",
+    "%d.%m.%Y",
     "%d %b %Y",
     "%d %B %Y",
     "%b %d, %Y",
@@ -177,3 +179,57 @@ def validate_extraction(invoice: ExtractedInvoice) -> ValidationResult:
         )
 
     return ValidationResult(ok=not issues, issues=issues)
+
+
+def validate_gst(invoice: ExtractedInvoice) -> GstCheckResult:
+    """
+    M6 item 4: run the GST-specific arithmetic invariants (app/domain/gst.py)
+    against a freshly extracted invoice.
+
+    Deliberately SEPARATE from validate_extraction() / parse_status: a GST
+    reconciliation failure here does NOT flip parse_status to
+    'needs_review' -- it feeds `expenses.needs_review` instead (set by
+    app/extraction/tasks.py). Keeping the two independent means a GST-only
+    inconsistency never has to be retrofitted into parse_status's already-
+    exhaustively-enumerated legal transition graph (see
+    app/domain/pg_guards.py's EXPENSE_STATE_MACHINE_GUARD_FUNCTION_DDL_V2
+    docstring for how carefully that graph is scoped to grepped, real code
+    paths) or its Postgres trigger. It also means an invoice whose BASE
+    arithmetic is fine but whose GST breakdown looks off is not blocked
+    from human review via the needs_review CORRECTION flow (PUT
+    .../line-items is gated on parse_status='needs_review', which this
+    does not set) -- instead it's blocked at a later, more appropriate
+    point: confirmation (see app/api/expenses.py).
+    """
+    # M6 item 5: item_totals now comes from the single shared definition
+    # (app.domain.gst.is_base_gst_line / base_item_totals_minor) also used
+    # by app.domain.splitting.compute_allocation, so the validator and the
+    # allocator can never disagree about what "the base" means.
+    item_totals = base_item_totals_minor(invoice.line_items, invoice.gst_mode)
+    discount_amount = abs(
+        sum(
+            li.total_minor
+            for li in invoice.line_items
+            if li.kind == LineItemKind.discount
+        )
+    )
+    tax_component_amounts = [tc.amount_minor for tc in invoice.tax_components]
+    line_gst_amounts = [
+        li.gst_amount_minor
+        for li in invoice.line_items
+        if li.gst_amount_minor is not None
+    ]
+    has_tax_kind_line_items = any(
+        li.kind == LineItemKind.tax for li in invoice.line_items
+    )
+    return check_gst_invariants(
+        gst_mode=invoice.gst_mode,
+        item_totals_minor=item_totals,
+        discount_amount_minor=discount_amount,
+        tax_component_amounts_minor=tax_component_amounts,
+        invoice_total_minor=invoice.invoice_total_minor,
+        line_gst_amounts_minor=line_gst_amounts,
+        has_line_gst_data=bool(line_gst_amounts),
+        has_component_data=bool(tax_component_amounts),
+        has_tax_kind_line_items=has_tax_kind_line_items,
+    )

@@ -13,17 +13,32 @@ import { z } from "zod";
 import {
   AllocationMethod,
   DiscountScope,
+  DiscountSource,
+  DiscountType,
   ExpenseSource,
   ExpenseStatus,
   GroupMemberRole,
+  GstMode,
   LedgerEntryType,
   LineItemKind,
   ParseStatus,
   SettlementMethod,
+  TaxComponentName,
   ValidationIssueCode,
 } from "./enums";
 
 const uuid = z.string().uuid();
+
+// Backend Decimal fields (e.g. discount_percent) are display-only here — we
+// never parse them to a JS number for arithmetic (CLAUDE.md invariant #1).
+// Pydantic v2's JSON encoding of a bare Decimal field can surface as either
+// a JSON string or a JSON number depending on the field; accept either shape
+// on the wire and normalize to a string so every consumer treats it
+// identically (display-only, e.g. "50" or "12.5").
+const decimalDisplayString = z.preprocess(
+  (v) => (v === null || v === undefined ? v : String(v)),
+  z.string(),
+);
 
 // ---------------------------------------------------------------------------
 // Users
@@ -134,6 +149,21 @@ export const groupMemberResponseSchema = z.object({
 });
 export type GroupMemberResponse = z.infer<typeof groupMemberResponseSchema>;
 
+export const groupMemberInfoSchema = z.object({
+  user_id: uuid,
+  name: z.string(),
+  avatar_url: z.string().nullable(),
+  role: z.nativeEnum(GroupMemberRole),
+  joined_at: z.string(),
+});
+export type GroupMemberInfo = z.infer<typeof groupMemberInfoSchema>;
+
+export const groupMembersResponseSchema = z.object({
+  group_id: uuid,
+  members: z.array(groupMemberInfoSchema),
+});
+export type GroupMembersResponse = z.infer<typeof groupMembersResponseSchema>;
+
 // ---------------------------------------------------------------------------
 // Line items
 // ---------------------------------------------------------------------------
@@ -151,6 +181,20 @@ export const lineItemCreateSchema = z.object({
 });
 export type LineItemCreate = z.input<typeof lineItemCreateSchema>;
 
+// M6-M8 total-reconciliation ruling, item 6: one user's CURRENT assignment
+// on a line item, embedded read-only inside LineItemResponse.assignments --
+// see backend/app/api/schemas.py's LineItemAssignmentInfo. Deliberately
+// id-less/share_minor-less (a lightweight "who's on this line" projection
+// for the UI, not a replacement for GET /expenses/{id}/shares or the
+// allocation-preview endpoint, which remain the source of truth for money).
+export const lineItemAssignmentInfoSchema = z.object({
+  user_id: uuid,
+  weight: z.string(), // Decimal on the wire, serialized as a string
+});
+export type LineItemAssignmentInfo = z.infer<
+  typeof lineItemAssignmentInfoSchema
+>;
+
 export const lineItemResponseSchema = z.object({
   id: uuid,
   expense_id: uuid,
@@ -164,6 +208,18 @@ export const lineItemResponseSchema = z.object({
   discount_scope: z.nativeEnum(DiscountScope).nullable().optional(),
   parent_line_id: uuid.nullable().optional(),
   bundle_group_id: uuid.nullable().optional(),
+  // M6 item 4 (API GAPS follow-up, M6-M8 item 5): per-item GST detail --
+  // only meaningful (non-null) when the parent expense's gst_mode ==
+  // 'item_level'; null on every other line. `gst_rate` is display-only
+  // (Decimal serialized as a string, same convention as `quantity` above).
+  gst_rate: decimalDisplayString.nullable().optional(),
+  gst_amount_minor: z.number().int().nullable().optional(),
+  // M6-M8 total-reconciliation ruling, item 6: current assignments on this
+  // line, populated from the same eager-loaded relationship every
+  // ExpenseResponse route already loads -- always present (see the
+  // response-schema `.default()` note on allocationPreviewResponseSchema
+  // above for why this isn't `.default()`).
+  assignments: z.array(lineItemAssignmentInfoSchema),
 });
 export type LineItemResponse = z.infer<typeof lineItemResponseSchema>;
 
@@ -197,6 +253,87 @@ export const sharesResponseSchema = z.object({
   shares: z.record(uuid, z.number().int()),
 });
 export type SharesResponse = z.infer<typeof sharesResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// M6-M8 item 7a: bulk assignment convenience endpoint
+// ---------------------------------------------------------------------------
+
+export const bulkAssignmentInSchema = z.object({
+  item_ids: z.array(uuid).min(1),
+  member_ids: z.array(uuid).min(1),
+});
+export type BulkAssignmentIn = z.input<typeof bulkAssignmentInSchema>;
+
+// ---------------------------------------------------------------------------
+// M6 item 5: discount + GST allocation preview
+// ---------------------------------------------------------------------------
+
+export const memberBreakdownResponseSchema = z.object({
+  user_id: uuid,
+  base_minor: z.number().int(),
+  discount_minor: z.number().int(),
+  gst_minor: z.number().int(),
+  total_minor: z.number().int(),
+});
+export type MemberBreakdownResponse = z.infer<
+  typeof memberBreakdownResponseSchema
+>;
+
+export const allocationProblemSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  // M6-M8 total-reconciliation ruling, API GAPS item 8: optional structured
+  // detail for problems about a SET of lines -- currently only populated
+  // for code='unassigned_lines'. Every other existing code leaves both
+  // null/undefined.
+  count: z.number().int().nullable().optional(),
+  line_ids: z.array(uuid).nullable().optional(),
+});
+export type AllocationProblem = z.infer<typeof allocationProblemSchema>;
+
+export const allocationPreviewResponseSchema = z.object({
+  expense_id: uuid,
+  confirmed: z.boolean(),
+  // Always present in the response (Pydantic Field(default_factory=list)/
+  // default=False fields are still always serialized, never omitted) --
+  // deliberately NOT `.default(...)` here: combined with this client's
+  // `z.ZodType<T>`-typed generic `request()` helper, a top-level
+  // `.default()` on a response field makes TypeScript infer T from the
+  // schema's (optional) INPUT side rather than its OUTPUT side, silently
+  // making every consumer treat an always-present array/boolean as
+  // possibly-undefined.
+  members: z.array(memberBreakdownResponseSchema),
+  subtotal_minor: z.number().int().nullable().optional(),
+  applied_discount_minor: z.number().int().nullable().optional(),
+  exclusive_gst_minor: z.number().int().nullable().optional(),
+  discount_recorded_but_inert: z.boolean(),
+  problems: z.array(allocationProblemSchema),
+});
+export type AllocationPreviewResponse = z.infer<
+  typeof allocationPreviewResponseSchema
+>;
+
+// M6-M8 item 7a: PATCH /expenses/{id}/discount payload. `discount_type:
+// null/undefined` means CLEAR the manual snapshot and re-run vendor-rule
+// auto-matching (see backend/app/api/expenses.py:patch_expense_discount).
+export const expenseDiscountPatchSchema = z.object({
+  discount_type: z.nativeEnum(DiscountType).nullable().optional(),
+  discount_value_minor: z.number().int().nullable().optional(),
+  discount_percent: z.union([z.string(), z.number()]).nullable().optional(),
+  discount_threshold_minor: z.number().int().default(0),
+});
+export type ExpenseDiscountPatch = z.input<typeof expenseDiscountPatchSchema>;
+
+// M6 item 4 (API GAPS follow-up, M6-M8 item 5): one persisted
+// expense_tax_components row (CGST/SGST/IGST/GST/CESS), embedded in
+// ExpenseResponse.tax_components. `rate` is display-only (Decimal
+// serialized as a string, same convention as other Decimal fields here).
+export const taxComponentResponseSchema = z.object({
+  name: z.nativeEnum(TaxComponentName),
+  rate: decimalDisplayString.nullable(),
+  amount_minor: z.number().int(),
+});
+export type TaxComponentResponse = z.infer<typeof taxComponentResponseSchema>;
 
 export const refundCreateSchema = z.object({
   parent_line_id: uuid,
@@ -244,6 +381,26 @@ export const expenseResponseSchema = z.object({
   // upload endpoint / needs-review flows need a way to reference the PDF.
   // Optional so parsing the base contract shape never fails if absent.
   pdf_object_key: z.string().nullable().optional(),
+  // M6-M8 item 7a: discount snapshot (see backend/app/api/schemas.py's
+  // ExpenseResponse doc comment — this DOES feed into each member's actual
+  // owed amount at confirmation, it is not purely informational).
+  discount_type: z.nativeEnum(DiscountType).nullable().optional(),
+  discount_value_minor: z.number().int().nullable().optional(),
+  discount_percent: decimalDisplayString.nullable().optional(),
+  discount_threshold_minor: z.number().int().nullable().optional(),
+  discount_source: z.nativeEnum(DiscountSource).nullable().optional(),
+  discount_rule_id: uuid.nullable().optional(),
+  // Set when GST-specific arithmetic invariants fail to reconcile;
+  // independent of parse_status. Confirmation is blocked while true.
+  // Always present (see the response-schema `.default()` note on
+  // allocationPreviewResponseSchema above for why this isn't `.default()`).
+  needs_review: z.boolean(),
+  // M6-M8 total-reconciliation ruling -- API GAPS items 5 and 7. Always set
+  // (backend defaults to 'none'/[]/false respectively, but always
+  // serializes -- see the response-schema `.default()` note above).
+  gst_mode: z.nativeEnum(GstMode),
+  tax_components: z.array(taxComponentResponseSchema),
+  is_frozen_shares: z.boolean(),
 });
 export type ExpenseResponse = z.infer<typeof expenseResponseSchema>;
 
@@ -360,3 +517,90 @@ export const lineItemsCorrectionSchema = z.object({
   line_items: z.array(lineItemCreateSchema),
 });
 export type LineItemsCorrection = z.input<typeof lineItemsCorrectionSchema>;
+
+// ---------------------------------------------------------------------------
+// Vendor discount rules (M6 item 3 / M6-M8 item 7a UI)
+// ---------------------------------------------------------------------------
+
+export const vendorDiscountRuleCreateSchema = z.object({
+  group_id: uuid.nullable().optional(),
+  vendor_pattern: z.string().min(1),
+  min_order_total_minor: z.number().int().nonnegative().default(0),
+  discount_type: z.nativeEnum(DiscountType),
+  discount_value_minor: z.number().int().nullable().optional(),
+  discount_percent: z.union([z.string(), z.number()]).nullable().optional(),
+});
+export type VendorDiscountRuleCreate = z.input<
+  typeof vendorDiscountRuleCreateSchema
+>;
+
+export const vendorDiscountRuleUpdateSchema = z.object({
+  vendor_pattern: z.string().min(1).nullable().optional(),
+  min_order_total_minor: z.number().int().nonnegative().nullable().optional(),
+  discount_type: z.nativeEnum(DiscountType).nullable().optional(),
+  discount_value_minor: z.number().int().nullable().optional(),
+  discount_percent: z.union([z.string(), z.number()]).nullable().optional(),
+  active: z.boolean().nullable().optional(),
+});
+export type VendorDiscountRuleUpdate = z.input<
+  typeof vendorDiscountRuleUpdateSchema
+>;
+
+export const vendorDiscountRuleResponseSchema = z.object({
+  id: uuid,
+  group_id: uuid.nullable(),
+  created_by: uuid,
+  vendor_pattern: z.string(),
+  min_order_total_minor: z.number().int(),
+  discount_type: z.nativeEnum(DiscountType),
+  discount_value_minor: z.number().int().nullable(),
+  discount_percent: decimalDisplayString.nullable(),
+  active: z.boolean(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type VendorDiscountRuleResponse = z.infer<
+  typeof vendorDiscountRuleResponseSchema
+>;
+
+export const vendorDiscountRulesListResponseSchema = z.object({
+  rules: z.array(vendorDiscountRuleResponseSchema),
+});
+export type VendorDiscountRulesListResponse = z.infer<
+  typeof vendorDiscountRulesListResponseSchema
+>;
+
+// ---------------------------------------------------------------------------
+// Grouped group-expenses list (M6-M8 item 7a)
+// ---------------------------------------------------------------------------
+
+export const expenseMemberShareSchema = z.object({
+  user_id: uuid,
+  share_minor: z.number().int(),
+});
+export type ExpenseMemberShare = z.infer<typeof expenseMemberShareSchema>;
+
+export const groupExpenseSummarySchema = z.object({
+  id: uuid,
+  vendor: z.string().nullable(),
+  invoice_date: z.string().nullable(),
+  total_minor: z.number().int(),
+  paid_by: uuid,
+  parse_status: z.nativeEnum(ParseStatus),
+  member_shares: z.array(expenseMemberShareSchema),
+});
+export type GroupExpenseSummary = z.infer<typeof groupExpenseSummarySchema>;
+
+export const groupExpensesBucketSchema = z.object({
+  date: z.string().nullable(),
+  expenses: z.array(groupExpenseSummarySchema),
+});
+export type GroupExpensesBucket = z.infer<typeof groupExpensesBucketSchema>;
+
+export const groupExpensesGroupedResponseSchema = z.object({
+  group_id: uuid,
+  buckets: z.array(groupExpensesBucketSchema),
+});
+export type GroupExpensesGroupedResponse = z.infer<
+  typeof groupExpensesGroupedResponseSchema
+>;

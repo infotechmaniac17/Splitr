@@ -52,7 +52,10 @@ export function listRememberedGroups(userId: string): RememberedGroup[] {
   return read<RememberedGroup>(key(userId, "groups"));
 }
 
-export function rememberExpense(userId: string, expense: RememberedExpense): void {
+export function rememberExpense(
+  userId: string,
+  expense: RememberedExpense,
+): void {
   const storageKey = key(userId, "expenses");
   const existing = read<RememberedExpense>(storageKey);
   if (existing.some((e) => e.id === expense.id)) return;
@@ -64,28 +67,11 @@ export function listRememberedExpenses(userId: string): RememberedExpense[] {
 }
 
 // ---------------------------------------------------------------------------
-// Group members. Same gap as above: there is no GET /groups/{id}/members
-// endpoint, so the assignment screen needs a local cache of "who's in this
-// group" (populated whenever this browser adds a member) to render avatars.
-// Global (not per-acting-user) since membership is a property of the group.
+// Group member display shape, shared by AssignmentScreen and the pages that
+// fetch the roster via api.getGroupMembers() (GET /groups/{id}/members).
 // ---------------------------------------------------------------------------
 
 export interface RememberedMember {
   id: string;
   name: string;
-}
-
-function membersKey(groupId: string): string {
-  return `splitr:members:${groupId}`;
-}
-
-export function rememberGroupMember(groupId: string, member: RememberedMember): void {
-  const storageKey = membersKey(groupId);
-  const existing = read<RememberedMember>(storageKey);
-  if (existing.some((m) => m.id === member.id)) return;
-  write(storageKey, [...existing, member]);
-}
-
-export function listGroupMembers(groupId: string): RememberedMember[] {
-  return read<RememberedMember>(membersKey(groupId));
 }

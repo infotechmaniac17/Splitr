@@ -49,7 +49,12 @@ export default function SignupScreen() {
         <Text style={styles.subtitle}>Join or start splitting expenses</Text>
       </View>
 
-      <Field label="Name" placeholder="Jane Doe" value={name} onChangeText={setName} />
+      <Field
+        label="Name"
+        placeholder="Jane Doe"
+        value={name}
+        onChangeText={setName}
+      />
       <Field
         label="Email"
         placeholder="jane@example.com"
@@ -93,7 +98,11 @@ const styles = StyleSheet.create({
   header: { marginTop: spacing.xl, marginBottom: spacing.lg },
   title: { fontSize: 28, fontWeight: "800", color: colors.text },
   subtitle: { fontSize: 15, color: colors.muted, marginTop: spacing.xs },
-  footer: { flexDirection: "row", justifyContent: "center", marginTop: spacing.lg },
+  footer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: spacing.lg,
+  },
   footerText: { color: colors.muted },
   link: { color: colors.primary, fontWeight: "600" },
 });

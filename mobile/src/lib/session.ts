@@ -1,5 +1,9 @@
 import * as SecureStore from "expo-secure-store";
-import { accessTokenResponseSchema, type TokenResponse, type UserResponse } from "@splitr/core";
+import {
+  accessTokenResponseSchema,
+  type TokenResponse,
+  type UserResponse,
+} from "@splitr/core";
 import { getApiBaseUrl } from "./config";
 
 /**
@@ -58,7 +62,10 @@ function clearRefreshTimer(): void {
 
 function scheduleRefresh(accessTokenExpiresAt: number): void {
   clearRefreshTimer();
-  const delay = Math.max(accessTokenExpiresAt - Date.now() - REFRESH_MARGIN_MS, 0);
+  const delay = Math.max(
+    accessTokenExpiresAt - Date.now() - REFRESH_MARGIN_MS,
+    0,
+  );
   refreshTimer = setTimeout(() => {
     refreshAccessToken().catch(() => {
       // refreshAccessToken already handles/reports failure via

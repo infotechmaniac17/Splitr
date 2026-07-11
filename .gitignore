@@ -87,3 +87,6 @@ Desktop.ini
 *.bak
 tmp/
 temp/
+
+# Personal invoice PDFs used for local extraction testing — never commit
+Amazon Bills/

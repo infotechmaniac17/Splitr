@@ -14,8 +14,15 @@ const STATUS_COLORS: Record<ParseStatus, string> = {
 export function StatusBadge({ status }: { status: ParseStatus }) {
   const tint = STATUS_COLORS[status];
   return (
-    <View style={[styles.badge, { backgroundColor: tint + "22", borderColor: tint }]}>
-      <Text style={[styles.text, { color: tint }]}>{parseStatusLabels[status]}</Text>
+    <View
+      style={[
+        styles.badge,
+        { backgroundColor: tint + "22", borderColor: tint },
+      ]}
+    >
+      <Text style={[styles.text, { color: tint }]}>
+        {parseStatusLabels[status]}
+      </Text>
     </View>
   );
 }
