@@ -57,7 +57,7 @@ function ExpenseDetailContent({ expenseId }: { expenseId: string }) {
         />
       );
     case "confirmed":
-      return <ConfirmedSummary expense={expense} />;
+      return <ConfirmedSummary expense={expense} members={members} />;
     default:
       return null;
   }

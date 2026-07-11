@@ -123,7 +123,23 @@ function GroupDetailContent({ groupId }: { groupId: string }) {
       </section>
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold text-gray-500">Expenses</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-gray-500">Expenses</h2>
+          <div className="flex gap-3">
+            <Link
+              href={`/groups/${groupId}/expenses`}
+              className="text-xs font-medium text-brand-700"
+            >
+              Date-grouped list
+            </Link>
+            <Link
+              href={`/groups/${groupId}/vendor-discount-rules`}
+              className="text-xs font-medium text-brand-700"
+            >
+              Discount rules
+            </Link>
+          </div>
+        </div>
         {expenses.length === 0 && (
           <p className="text-sm text-gray-400">No expenses yet in this browser.</p>
         )}

@@ -72,6 +72,19 @@ export const SettlementMethod = {
 } as const;
 export type SettlementMethod = (typeof SettlementMethod)[keyof typeof SettlementMethod];
 
+export const DiscountType = {
+  flat: "flat",
+  percent: "percent",
+} as const;
+export type DiscountType = (typeof DiscountType)[keyof typeof DiscountType];
+
+export const DiscountSource = {
+  manual: "manual",
+  vendor_rule: "vendor_rule",
+  extracted: "extracted",
+} as const;
+export type DiscountSource = (typeof DiscountSource)[keyof typeof DiscountSource];
+
 /** Stable validation issue codes, API_CONTRACT.md §4. */
 export const ValidationIssueCode = {
   no_line_items: "no_line_items",

@@ -1,6 +1,6 @@
 /** Human-readable labels for enum wire values (used by both web + mobile). */
 
-import { LineItemKind, ParseStatus, ValidationIssueCode } from "./enums";
+import { DiscountSource, LineItemKind, ParseStatus, ValidationIssueCode } from "./enums";
 
 export const lineItemKindLabels: Record<LineItemKind, string> = {
   item: "Item",
@@ -30,6 +30,12 @@ export const validationIssueLabels: Record<ValidationIssueCode, string> = {
   invoice_total_mismatch: "Line items don't add up to the invoice total",
   currency_unrecognized: "Unrecognized currency",
   bad_date: "Invalid date",
+};
+
+export const discountSourceLabels: Record<DiscountSource, string> = {
+  manual: "Manual",
+  vendor_rule: "Vendor rule",
+  extracted: "Extracted from invoice",
 };
 
 /** Line-item kinds that represent cart-level rows (fees/discounts/tax) vs items. */

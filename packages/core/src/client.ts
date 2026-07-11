@@ -25,12 +25,16 @@
 
 import {
   type AccessTokenResponse,
+  type AllocationPreviewResponse,
   type AssignmentResponse,
   type AssignmentsPut,
+  type BulkAssignmentIn,
   type ExpenseCreate,
+  type ExpenseDiscountPatch,
   type ExpenseResponse,
   type GroupBalancesResponse,
   type GroupCreate,
+  type GroupExpensesGroupedResponse,
   type GroupMemberAdd,
   type GroupMemberResponse,
   type GroupMembersResponse,
@@ -48,10 +52,16 @@ import {
   type UserBalanceResponse,
   type UserCreate,
   type UserResponse,
+  type VendorDiscountRuleCreate,
+  type VendorDiscountRuleResponse,
+  type VendorDiscountRulesListResponse,
+  type VendorDiscountRuleUpdate,
   accessTokenResponseSchema,
+  allocationPreviewResponseSchema,
   assignmentResponseSchema,
   expenseResponseSchema,
   groupBalancesResponseSchema,
+  groupExpensesGroupedResponseSchema,
   groupMemberResponseSchema,
   groupMembersResponseSchema,
   groupResponseSchema,
@@ -61,6 +71,8 @@ import {
   tokenResponseSchema,
   userBalanceResponseSchema,
   userResponseSchema,
+  vendorDiscountRuleResponseSchema,
+  vendorDiscountRulesListResponseSchema,
 } from "./schemas";
 import { z } from "zod";
 
@@ -88,7 +100,10 @@ export interface ApiClientOptions {
   getAccessToken?: () => string | null | undefined;
 }
 
-async function parseJsonOrThrow<T>(res: Response, schema: z.ZodType<T>): Promise<T> {
+async function parseJsonOrThrow<T>(
+  res: Response,
+  schema: z.ZodType<T, z.ZodTypeDef, any>,
+): Promise<T> {
   const text = await res.text();
   const body: unknown = text ? JSON.parse(text) : undefined;
   if (!res.ok) {
@@ -129,7 +144,16 @@ export class SplitrApiClient {
   private async request<T>(
     method: string,
     path: string,
-    schema: z.ZodType<T>,
+    // `Input = any` (rather than the default `Input = T`) is deliberate:
+    // some response schemas below preprocess/default individual fields
+    // (e.g. schemas.ts's decimalDisplayString, or an array field backed by
+    // Field(default_factory=list) on the Pydantic side), which makes a
+    // schema's INPUT type differ from its OUTPUT type. Binding Input=T too
+    // (the z.ZodType<T> default) makes TypeScript infer T from the
+    // (optionally-undefined/looser) input side instead of the actual
+    // parsed output shape at every call site below -- decoupling Input
+    // here fixes that class of bug across the whole client in one place.
+    schema: z.ZodType<T, z.ZodTypeDef, any>,
     body?: unknown,
     init?: RequestInit,
   ): Promise<T> {
@@ -231,6 +255,122 @@ export class SplitrApiClient {
     );
   }
 
+  /**
+   * M6-M8 item 7a: expenses grouped by invoice_date. `from`/`to` are
+   * inclusive YYYY-MM-DD date-range filters against invoice_date; an
+   * expense with no known invoice_date is placed in its own `date: null`
+   * bucket and is NEVER excluded by the range filter (see
+   * backend/app/api/groups.py:get_group_expenses_grouped). Per-member
+   * summaries in the response are read from persisted rows only -- never
+   * recompute them client-side.
+   */
+  getGroupExpenses(
+    groupId: string,
+    params?: { from?: string; to?: string },
+  ): Promise<GroupExpensesGroupedResponse> {
+    const query = new URLSearchParams();
+    if (params?.from) query.set("from", params.from);
+    if (params?.to) query.set("to", params.to);
+    query.set("group_by", "date");
+    return this.request(
+      "GET",
+      `/groups/${groupId}/expenses?${query.toString()}`,
+      groupExpensesGroupedResponseSchema,
+    );
+  }
+
+  // -- Vendor discount rules (M6 item 3 / M6-M8 item 7a UI) -----------------
+  //
+  // Two families: group-scoped (/groups/{id}/vendor-discount-rules[/...])
+  // and creator-global (/vendor-discount-rules/global[/...]). See
+  // backend/app/api/vendor_discount_rules.py's module docstring for the
+  // admin-only-for-group-scoped / creator-only-for-global authorization
+  // rules -- this client doesn't enforce those, it just surfaces whatever
+  // 403 the backend returns.
+
+  listGroupVendorDiscountRules(groupId: string): Promise<VendorDiscountRulesListResponse> {
+    return this.request(
+      "GET",
+      `/groups/${groupId}/vendor-discount-rules`,
+      vendorDiscountRulesListResponseSchema,
+    );
+  }
+
+  createGroupVendorDiscountRule(
+    groupId: string,
+    payload: VendorDiscountRuleCreate,
+  ): Promise<VendorDiscountRuleResponse> {
+    return this.request(
+      "POST",
+      `/groups/${groupId}/vendor-discount-rules`,
+      vendorDiscountRuleResponseSchema,
+      payload,
+    );
+  }
+
+  updateGroupVendorDiscountRule(
+    groupId: string,
+    ruleId: string,
+    payload: VendorDiscountRuleUpdate,
+  ): Promise<VendorDiscountRuleResponse> {
+    return this.request(
+      "PUT",
+      `/groups/${groupId}/vendor-discount-rules/${ruleId}`,
+      vendorDiscountRuleResponseSchema,
+      payload,
+    );
+  }
+
+  deactivateGroupVendorDiscountRule(
+    groupId: string,
+    ruleId: string,
+  ): Promise<VendorDiscountRuleResponse> {
+    return this.request(
+      "DELETE",
+      `/groups/${groupId}/vendor-discount-rules/${ruleId}`,
+      vendorDiscountRuleResponseSchema,
+    );
+  }
+
+  listGlobalVendorDiscountRules(): Promise<VendorDiscountRulesListResponse> {
+    return this.request(
+      "GET",
+      "/vendor-discount-rules/global",
+      vendorDiscountRulesListResponseSchema,
+    );
+  }
+
+  createGlobalVendorDiscountRule(
+    payload: VendorDiscountRuleCreate,
+  ): Promise<VendorDiscountRuleResponse> {
+    return this.request(
+      "POST",
+      "/vendor-discount-rules/global",
+      vendorDiscountRuleResponseSchema,
+      payload,
+    );
+  }
+
+  updateGlobalVendorDiscountRule(
+    ruleId: string,
+    payload: VendorDiscountRuleUpdate,
+  ): Promise<VendorDiscountRuleResponse> {
+    return this.request(
+      "PUT",
+      `/vendor-discount-rules/global/${ruleId}`,
+      vendorDiscountRuleResponseSchema,
+      payload,
+    );
+  }
+
+  deactivateGlobalVendorDiscountRule(ruleId: string): Promise<VendorDiscountRuleResponse> {
+    return this.request(
+      "DELETE",
+      `/vendor-discount-rules/global/${ruleId}`,
+      vendorDiscountRuleResponseSchema,
+    );
+  }
+
   // -- Expenses ------------------------------------------------------------
 
   createExpense(payload: ExpenseCreate): Promise<ExpenseResponse> {
@@ -275,6 +415,58 @@ export class SplitrApiClient {
       `/expenses/${expenseId}/refunds`,
       expenseResponseSchema,
       payload,
+    );
+  }
+
+  /**
+   * M6-M8 item 7a convenience bulk-assign: replace-set semantics PER ITEM
+   * (only the targeted `item_ids`' assignments are replaced; other line
+   * items on the expense are left untouched) -- see
+   * backend/app/api/expenses.py:bulk_put_assignments. Used both for the
+   * assignment screen's multi-select "assign selected to..." action AND
+   * (with a single item id) as the per-row avatar-toggle mutation, since
+   * there is no dedicated single-line PUT route.
+   */
+  bulkPutAssignments(
+    expenseId: string,
+    payload: BulkAssignmentIn,
+  ): Promise<AssignmentResponse[]> {
+    return this.request(
+      "POST",
+      `/expenses/${expenseId}/assignments/bulk`,
+      z.array(assignmentResponseSchema),
+      payload,
+    );
+  }
+
+  /**
+   * Set/clear an expense's discount snapshot (draft expenses only). See
+   * backend/app/api/expenses.py:patch_expense_discount for precedence rules
+   * (manual always wins; clearing re-runs vendor-rule auto-matching) and the
+   * 422 for expenses whose shares were frozen at create time.
+   */
+  patchExpenseDiscount(
+    expenseId: string,
+    payload: ExpenseDiscountPatch,
+  ): Promise<ExpenseResponse> {
+    return this.request(
+      "PATCH",
+      `/expenses/${expenseId}/discount`,
+      expenseResponseSchema,
+      payload,
+    );
+  }
+
+  /**
+   * M6 item 5: live (draft) or persisted (confirmed) per-member discount +
+   * GST breakdown. NEVER computed client-side -- see
+   * backend/app/api/expenses.py:get_allocation_preview.
+   */
+  getAllocationPreview(expenseId: string): Promise<AllocationPreviewResponse> {
+    return this.request(
+      "GET",
+      `/expenses/${expenseId}/allocation-preview`,
+      allocationPreviewResponseSchema,
     );
   }
 
