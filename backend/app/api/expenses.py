@@ -48,7 +48,9 @@ from app.api.schemas import (
     AllocationProblem,
     AssignmentResponse,
     AssignmentsPut,
+    BulkAssignmentIn,
     ExpenseCreate,
+    ExpenseDiscountPatch,
     ExpenseResponse,
     LineItemsCorrection,
     MemberBreakdownResponse,
@@ -68,6 +70,7 @@ from app.domain.ledger import (
     post_refund_to_ledger,
 )
 from app.domain.models import (
+    DiscountSource,
     Expense,
     ExpenseLineItem,
     ExpenseMemberAllocation,
@@ -1159,6 +1162,210 @@ async def put_assignments(
 
     await db.commit()
     return created
+
+
+@router.post(
+    "/{expense_id}/assignments/bulk",
+    response_model=list[AssignmentResponse],
+    status_code=status.HTTP_200_OK,
+)
+async def bulk_put_assignments(
+    expense_id: uuid.UUID,
+    payload: BulkAssignmentIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ItemAssignment]:
+    """
+    Convenience bulk-assign for the assignment UI (M6-M8 item 7a): assign
+    `member_ids` (equal weight=1 each) to every line item in `item_ids`.
+
+    Replace-set semantics PER ITEM -- mirrors PUT /expenses/{id}/assignments'
+    validation and auth exactly (auth via
+    _assert_actor_authorized_for_expense, confirmed/voided 409s BEFORE the DB
+    trigger backstop, unknown-line-id 422, group-membership check on
+    member_ids), the only difference being the item_ids/member_ids ->
+    per-item replace expansion instead of an explicit (line_item_id,
+    user_id, weight) list. Only the assignments of the TARGETED items are
+    replaced; other line items' assignments are left untouched (unlike PUT
+    .../assignments, which replaces every assignment on the expense).
+
+    Idempotent: calling twice with the same payload produces the exact same
+    final rows (delete-then-recreate of only the targeted items each time).
+
+    Refund-kind lines: NOT filtered out here, matching
+    PUT /expenses/{id}/assignments' existing behaviour exactly -- that route
+    only checks that a line_item_id belongs to this expense (via `line_ids`
+    membership), with no kind-based skip/error. A refund line can be
+    assigned to like any other line by both routes. Note: directly
+    assigning a refund line overrides its default parent-inheritance in
+    compute_shares (an unassigned refund line inherits the parent item's
+    assignment ratios; an explicitly assigned one uses its own assignments
+    instead) -- existing semantics, newly reachable in bulk here.
+    """
+    result = await db.execute(select(Expense).where(Expense.id == expense_id))
+    expense = result.scalar_one_or_none()
+    if expense is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found"
+        )
+    await _assert_actor_authorized_for_expense(db, expense, current_user.id)
+    if expense.parse_status == ParseStatus.confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot modify assignments of a confirmed expense",
+        )
+    if expense.status == ExpenseStatus.voided:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot modify assignments of a voided expense",
+        )
+
+    lines = await _load_lines_with_assignments(db, expense_id)
+    line_by_id = {uuid.UUID(str(li.id)): li for li in lines}
+    unknown = set(payload.item_ids) - line_by_id.keys()
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Line items {[str(x) for x in unknown]} do not belong to this expense",
+        )
+
+    # Dedupe while preserving order -- a repeated id in either list is
+    # collapsed to one row, not a duplicate-assignment error (bulk-assign is
+    # a set operation by construction, not a list of discrete pairs like
+    # AssignmentsPut, so there is no meaningful "duplicate" to reject here).
+    item_ids = list(dict.fromkeys(payload.item_ids))
+    member_ids = list(dict.fromkeys(payload.member_ids))
+
+    if expense.group_id is not None:
+        await _assert_active_group_members(
+            db, uuid.UUID(str(expense.group_id)), set(member_ids)
+        )
+
+    # Replace: delete existing assignment rows on ONLY the targeted items
+    # (pre-confirmation, so no frozen audit data is lost -- share_minor is
+    # only written at confirm time in this flow, same as AssignmentsPut).
+    for item_id in item_ids:
+        for existing in list(line_by_id[item_id].assignments):
+            await db.delete(existing)
+    await db.flush()
+
+    created: list[ItemAssignment] = []
+    for item_id in item_ids:
+        for user_id in member_ids:
+            row = ItemAssignment(
+                line_item_id=item_id,
+                user_id=user_id,
+                weight=1,
+                share_minor=None,
+            )
+            db.add(row)
+            created.append(row)
+
+    await db.commit()
+    return created
+
+
+@router.patch("/{expense_id}/discount", response_model=ExpenseResponse)
+async def patch_expense_discount(
+    expense_id: uuid.UUID,
+    payload: ExpenseDiscountPatch,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Expense:
+    """
+    Set or clear an expense's discount snapshot (M6-M8 item 7a, draft
+    expenses only -- i.e. parse_status != 'confirmed').
+
+    Set (`discount_type` given): persists directly to the item-3 snapshot
+    columns with discount_source='manual', discount_rule_id=NULL. Manual
+    always wins over any subsequent vendor-rule auto-match (existing
+    precedence in app.domain.vendor_discount.apply_vendor_discount_snapshot
+    -- never auto-overwritten afterward).
+
+    Clear (`discount_type=None`): nulls out the snapshot columns, then
+    RE-RUNS vendor-rule auto-matching and persists whatever it finds (or
+    leaves the snapshot empty if nothing matches). The re-match subtotal is
+    the OQ-2 fresh-computed base subtotal
+    (app.domain.gst.base_item_totals_minor over the CURRENTLY PERSISTED line
+    items -- items+fees+tip+refunds, excluding tax/discount lines), passed
+    via apply_vendor_discount_snapshot's subtotal_override_minor -- NEVER
+    expense.subtotal_minor, which can be stale (see that function's
+    docstring / the OQ-2 fix in app.domain.vendor_discount).
+
+    409 if the expense is already confirmed (guards BEFORE the DB trigger
+    backstop, same convention as every other mutation route in this module)
+    or voided.
+
+    422 if every existing assignment already carries a frozen share_minor
+    (the same explicit-shares/M1 condition _resolve_allocation's frozen-path
+    guard checks) -- a discount snapshot on such an expense is structurally
+    unconsumable (finance-reviewer finding 2: that flow's confirm path
+    returns frozen shares verbatim and never runs compute_allocation), so we
+    refuse to write one rather than let it silently rot inert.
+    """
+    result = await db.execute(
+        select(Expense).where(Expense.id == expense_id).with_for_update()
+    )
+    expense = result.scalar_one_or_none()
+    if expense is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found"
+        )
+    await _assert_actor_authorized_for_expense(db, expense, current_user.id)
+    if expense.parse_status == ParseStatus.confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot modify the discount of a confirmed expense",
+        )
+    if expense.status == ExpenseStatus.voided:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot modify the discount of a voided expense",
+        )
+
+    lines = await _load_lines_with_assignments(db, expense_id)
+    all_assignments = [a for li in lines for a in li.assignments]
+    if all_assignments and all(a.share_minor is not None for a in all_assignments):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "This expense's shares were frozen at create time "
+                "(explicit-shares flow) and cannot consume a discount "
+                "snapshot -- see app.api.expenses._resolve_allocation. "
+                "Recreate the expense with line items instead."
+            ),
+        )
+
+    if payload.discount_type is None:
+        # Clear -- then re-run vendor-rule auto-matching against the fresh
+        # base subtotal (OQ-2 contract, see docstring above).
+        expense.discount_type = None
+        expense.discount_value_minor = None
+        expense.discount_percent = None
+        expense.discount_threshold_minor = None
+        expense.discount_source = None
+        expense.discount_rule_id = None
+        fresh_subtotal = base_item_totals_minor(lines, expense.gst_mode)
+        await apply_vendor_discount_snapshot(
+            db, expense, subtotal_override_minor=fresh_subtotal
+        )
+    else:
+        # Set manual -- always wins, never auto-overwritten afterward.
+        expense.discount_type = payload.discount_type
+        expense.discount_value_minor = payload.discount_value_minor
+        expense.discount_percent = payload.discount_percent
+        expense.discount_threshold_minor = payload.discount_threshold_minor
+        expense.discount_source = DiscountSource.manual
+        expense.discount_rule_id = None
+
+    await db.commit()
+
+    result2 = await db.execute(
+        select(Expense)
+        .options(selectinload(Expense.line_items))
+        .where(Expense.id == expense_id)
+    )
+    return result2.scalar_one()
 
 
 @router.get("/{expense_id}/shares", response_model=SharesResponse)

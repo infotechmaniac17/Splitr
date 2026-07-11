@@ -252,6 +252,22 @@ class AssignmentsPut(BaseModel):
     assignments: list[AssignmentIn] = Field(..., min_length=1)
 
 
+class BulkAssignmentIn(BaseModel):
+    """
+    POST /expenses/{id}/assignments/bulk payload (M6-M8 item 7a).
+
+    Replace-set semantics PER ITEM (not the whole expense, unlike
+    AssignmentsPut above): for every line item in `item_ids`, its existing
+    assignments are replaced with one equal-weight (weight=1) row per member
+    in `member_ids`. Convenience bulk-assign for the assignment UI ("assign
+    these people to these items") -- for per-line weighted splits use
+    PUT /expenses/{id}/assignments instead.
+    """
+
+    item_ids: list[uuid.UUID] = Field(..., min_length=1)
+    member_ids: list[uuid.UUID] = Field(..., min_length=1)
+
+
 class AssignmentResponse(BaseModel):
     id: uuid.UUID
     line_item_id: uuid.UUID
@@ -567,6 +583,36 @@ def _validate_discount_shape(
             )
 
 
+class ExpenseDiscountPatch(BaseModel):
+    """
+    PATCH /expenses/{id}/discount payload (M6-M8 item 7a, draft expenses
+    only).
+
+    `discount_type=None` means CLEAR the current snapshot and re-run
+    vendor-rule auto-matching (see app.api.expenses.patch_expense_discount) --
+    this is the only way to get back to a vendor-rule-sourced snapshot after
+    a manual one was set, since manual always wins and is never
+    auto-overwritten.
+
+    `discount_type` set means SET a manual discount snapshot (always wins
+    over any vendor rule from then on, per app.domain.vendor_discount's
+    "manual always wins" precedence).
+    """
+
+    discount_type: DiscountType | None = None
+    discount_value_minor: int | None = None
+    discount_percent: Decimal | None = None
+    discount_threshold_minor: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _validate(self) -> ExpenseDiscountPatch:
+        if self.discount_type is not None:
+            _validate_discount_shape(
+                self.discount_type, self.discount_value_minor, self.discount_percent
+            )
+        return self
+
+
 class VendorDiscountRuleCreate(BaseModel):
     """
     Create a vendor discount rule.
@@ -660,6 +706,54 @@ class VendorDiscountRuleResponse(BaseModel):
 
 class VendorDiscountRulesListResponse(BaseModel):
     rules: list[VendorDiscountRuleResponse]
+
+
+# ---------------------------------------------------------------------------
+# Grouped group-expenses list (M6-M8 item 7a)
+# ---------------------------------------------------------------------------
+
+
+class ExpenseMemberShare(BaseModel):
+    """
+    One member's PERSISTED (never recomputed) share of an expense --
+    expense_member_allocations.total_minor for an item-5-confirmed expense,
+    or the sum of frozen item_assignments.share_minor for that user
+    otherwise. Members with no frozen share yet (a draft item-level expense
+    before confirmation) simply do not appear here -- see
+    GET /groups/{group_id}/expenses.
+    """
+
+    user_id: uuid.UUID
+    share_minor: int
+
+
+class GroupExpenseSummary(BaseModel):
+    id: uuid.UUID
+    vendor: str | None
+    invoice_date: date | None
+    total_minor: int
+    paid_by: uuid.UUID
+    parse_status: ParseStatus
+    member_shares: list[ExpenseMemberShare] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
+
+class GroupExpensesBucket(BaseModel):
+    """
+    One date bucket. `date=None` is the deterministic "undated" bucket for
+    expenses with invoice_date IS NULL -- see
+    GET /groups/{group_id}/expenses's docstring for why NULL invoice_date is
+    never silently folded into a `created_at`-derived date instead.
+    """
+
+    date: date | None
+    expenses: list[GroupExpenseSummary]
+
+
+class GroupExpensesGroupedResponse(BaseModel):
+    group_id: uuid.UUID
+    buckets: list[GroupExpensesBucket]
 
 
 # ---------------------------------------------------------------------------
