@@ -64,6 +64,13 @@ class SplitError(ValueError):
 # Zomato/Amazon PDFs when samples with BOTH a discount and exclusive GST
 # become available -- this is a documented assumption, not a confirmed fact
 # from an actual invoice.
+#
+# Known discrepancy for gst_mode='item_level' (finance-reviewer LOW, left
+# as-is deliberately): item-level line totals EMBED their own GST, so the
+# base subtotal the discount threshold/percent is computed against is
+# gross (tax-inclusive) for that mode -- the "pre-tax subtotal" wording
+# above only holds literally for invoice_exclusive. Verify which base real
+# vendors use for item_level invoices before changing anything here.
 DISCOUNT_BEFORE_GST = True
 
 
@@ -545,21 +552,35 @@ def compute_allocation(
                 # carry gst_amount_minor in practice) -- nothing to
                 # distribute against.
                 continue
-            assignments = line.assignments
-            if not assignments and line.parent_line_id is not None:
-                parent = by_id.get(line.parent_line_id)
-                if parent is not None:
-                    assignments = parent.assignments
-            # Reuses the EXISTING weight-resolution mechanism: a GST-bearing
-            # line with no resolvable assignments raises the same SplitError
-            # compute_shares itself would have already raised while
-            # computing base_result above (every kind='item' line must have
-            # assignments or a parent with assignments) -- by the time we
-            # reach this stage, base_result already succeeded, so this call
-            # cannot newly fail for that reason; kept for defense in depth
-            # if a future GST-bearing kind is added that compute_shares does
-            # not already validate.
-            ratios = _weights_to_ratios(line, assignments)
+            # Ratio source: the line's OWN already-rounded base allocation
+            # (base_result.line_allocations), not the raw assignment
+            # weights. Finance-reviewer finding: rounding the line total and
+            # its embedded GST in two INDEPENDENT largest-remainder passes
+            # over raw weights can hand a member one more paisa of GST than
+            # of line total (tie-breaks are amount-dependent), driving that
+            # member's netted base_minor below zero on tiny lines. Allocating
+            # GST proportionally to the integer base allocation guarantees
+            # per-member gst_i <= base line share whenever the line's GST is
+            # <= its total (floor(G*t_i/T) + a possible remainder bump never
+            # exceeds t_i for G <= T), so stored_base below stays >= 0.
+            line_alloc = base_result.line_allocations.get(line_id)
+            if (
+                line_alloc
+                and sum(line_alloc.values()) > 0
+                and all(v >= 0 for v in line_alloc.values())
+            ):
+                ratios = _shares_to_ratios(line_alloc)
+            else:
+                # Degenerate line allocation (zero/negative totals) -- fall
+                # back to the raw assignment-weight path, same resolution
+                # compute_shares itself used; the stored_base >= 0 assert in
+                # the assembly stage below is the backstop for this path.
+                assignments = line.assignments
+                if not assignments and line.parent_line_id is not None:
+                    parent = by_id.get(line.parent_line_id)
+                    if parent is not None:
+                        assignments = parent.assignments
+                ratios = _weights_to_ratios(line, assignments)
             per_line_alloc = allocate_largest_remainder(amount, ratios)
             for uid, amt in per_line_alloc.items():
                 gst_alloc[uid] = gst_alloc.get(uid, 0) + amt
@@ -583,6 +604,15 @@ def compute_allocation(
         stored_base = (
             base_amount - gst_amount if gst_mode == GstMode.item_level else base_amount
         )
+        if stored_base < 0:
+            # Only reachable via the degenerate-line fallback above (or a
+            # line whose gst_amount_minor exceeds its total) -- the persisted
+            # audit breakdown must never show a negative base. Never adjust;
+            # refuse and route to review.
+            raise SplitError(
+                f"Item-level GST netting drove user {uid}'s base below zero "
+                f"(base {base_amount}, embedded GST {gst_amount})"
+            )
         total_amount = stored_base + disc_amount + gst_amount
         members[uid] = MemberBreakdown(
             base_minor=stored_base,

@@ -184,6 +184,29 @@ async def _resolve_allocation(
         )
 
     if all(a.share_minor is not None for a in all_assignments):
+        # M6 item 5 (finance-reviewer HIGH, defense in depth): the frozen-
+        # shares path bypasses compute_allocation entirely, so a discount
+        # snapshot or an allocation-bearing gst_mode on such an expense can
+        # NEVER become real money -- refuse to confirm at silently-full
+        # price rather than let the snapshot rot inert. Create-time already
+        # skips apply_vendor_discount_snapshot for this flow; this guard
+        # catches any other path that populates the snapshot on a frozen-
+        # shares expense. (Already-confirmed expenses never reach here --
+        # confirm_expense's idempotent early-return fires first.)
+        if expense.discount_type is not None or expense.gst_mode in (
+            GstMode.invoice_exclusive,
+            GstMode.item_level,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Expense has a discount snapshot and/or an allocation-"
+                    "bearing gst_mode, but its shares were frozen at create "
+                    "time (explicit-shares flow) and cannot consume them. "
+                    "Clear the discount/GST data or recreate the expense "
+                    "with line items."
+                ),
+            )
         return await load_expense_shares(db, expense_id), None
 
     tax_components = await _load_tax_components(db, expense_id)
@@ -401,7 +424,16 @@ async def create_expense(
     # M6 item 3: manual expenses are created 'parsed' (a draft, never
     # 'confirmed' -- see the parse_status override above), so a vendor rule
     # is eligible to auto-apply here too, same as the PDF pipeline path.
-    await apply_vendor_discount_snapshot(db, expense)
+    # M6 item 5 (finance-reviewer HIGH): but ONLY on the item-level flow.
+    # The explicit-shares (M1) flow freezes share_minor at create time and
+    # its confirm path returns those frozen shares verbatim, never running
+    # compute_allocation -- a discount snapshot written here would be
+    # silently inert (expense confirms at full price with a populated
+    # discount_* snapshot and no needs_review signal). Structurally
+    # unconsumable snapshot => never write it. _resolve_allocation's frozen
+    # path carries the matching confirm-time guard as defense in depth.
+    if item_level_flow:
+        await apply_vendor_discount_snapshot(db, expense)
 
     if not item_level_flow:
         # Reload line items to get IDs.
@@ -1377,6 +1409,33 @@ async def create_refund(
                 .where(Expense.id == expense_id)
             )
             return result_idem.scalar_one()
+
+    # M6 item 5 (finance-reviewer MEDIUM, conservative guard): this refund
+    # flow caps and splits by RAW item weights / gross line totals -- it
+    # predates the discount+GST allocation layer and does not consult
+    # expense_member_allocations. On an expense whose confirmation actually
+    # applied a whole-invoice discount or allocated GST, a member's real
+    # net-paid amount for the parent line differs from that gross pro-rata,
+    # so this math could refund more (or less) than was actually collected
+    # from them. Until the refund flow is made allocation-aware (tracked
+    # follow-up), refuse rather than move wrong money.
+    alloc_rows_result = await db.execute(
+        select(ExpenseMemberAllocation).where(
+            ExpenseMemberAllocation.expense_id == expense_id
+        )
+    )
+    alloc_rows = list(alloc_rows_result.scalars().all())
+    if any(int(r.discount_minor) != 0 or int(r.gst_minor) != 0 for r in alloc_rows):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This expense was confirmed with an applied discount and/or "
+                "allocated GST; the refund flow is not yet discount/GST-"
+                "aware and cannot guarantee the refund matches what each "
+                "member actually paid. Record a correcting settlement "
+                "instead, or void and recreate the expense."
+            ),
+        )
 
     parent = next(
         (li for li in lines if uuid.UUID(str(li.id)) == payload.parent_line_id),

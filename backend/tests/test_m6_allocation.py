@@ -936,3 +936,333 @@ async def test_concurrent_double_confirm_exactly_once_with_discount_gst(
     assert amount == int(bob_row.total_minor)
 
 
+# ---------------------------------------------------------------------------
+# 17. Finance-reviewer follow-ups (post-gate fixes).
+# ---------------------------------------------------------------------------
+
+
+def test_item_level_tiny_line_gst_netting_never_negative_base() -> None:
+    """
+    Reviewer finding #1: rounding a tiny line's total and its embedded GST in
+    two independent largest-remainder passes could hand a member more GST
+    than line total, driving their netted base_minor negative. GST now
+    follows the line's own integer base allocation, so base_minor >= 0 for
+    every member on every gst_amount <= line total.
+    """
+    for total in range(0, 6):
+        for gst_amount in range(0, total + 1):
+            lines = [_item(1, total, {A: 1, B: 1, C: 1})]
+            result = compute_allocation(
+                lines,
+                total,
+                gst=GstSpec(
+                    mode=GstMode.item_level,
+                    component_total_minor=gst_amount,
+                    per_line_gst_minor={_lid(1): gst_amount},
+                ),
+            )
+            for uid, m in result.members.items():
+                assert m.base_minor >= 0, (
+                    f"total={total} gst={gst_amount} user={uid}: "
+                    f"negative base {m.base_minor}"
+                )
+                assert m.total_minor == m.base_minor + m.discount_minor + m.gst_minor
+            assert sum(m.total_minor for m in result.members.values()) == total
+            assert sum(m.gst_minor for m in result.members.values()) == gst_amount
+
+
+def test_item_level_gst_equal_to_line_total_gives_zero_base() -> None:
+    """Edge: a line that is 100% embedded GST -- base 0, gst 1, total 1."""
+    lines = [_item(1, 1, {A: 1})]
+    result = compute_allocation(
+        lines,
+        1,
+        gst=GstSpec(
+            mode=GstMode.item_level,
+            component_total_minor=1,
+            per_line_gst_minor={_lid(1): 1},
+        ),
+    )
+    m = result.members[A]
+    assert (m.base_minor, m.gst_minor, m.total_minor) == (0, 1, 1)
+
+
+async def test_vendor_rule_snapshot_skipped_on_explicit_shares_manual_expense(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """
+    Reviewer finding #2 (HIGH): the explicit-shares (M1) manual flow freezes
+    share_minor at create time and never runs compute_allocation, so a
+    vendor-rule snapshot written there would be silently inert. The create
+    path must not write the snapshot for that flow at all.
+    """
+    from app.domain.models import VendorDiscountRule
+
+    creator = await _make_orm_user(db_session, "Creator")
+    alice = await _make_orm_user(db_session, "Alice")
+    bob = await _make_orm_user(db_session, "Bob")
+    db_session.add(
+        VendorDiscountRule(
+            group_id=None,
+            created_by=creator.id,
+            vendor_pattern="amazon",
+            min_order_total_minor=0,
+            discount_type=DiscountType.flat,
+            discount_value_minor=500,
+        )
+    )
+    await db_session.commit()
+
+    resp = await client.post(
+        f"{API}/expenses",
+        json={
+            "paid_by": str(alice.id),
+            "vendor": "Amazon",
+            "currency": "INR",
+            "total_minor": 10000,
+            "shares": {str(alice.id): 4000, str(bob.id): 6000},
+        },
+        headers={"Authorization": f"Bearer {_token(alice.id)}"},
+    )
+    assert resp.status_code == 201, resp.text
+    expense_id = uuid.UUID(resp.json()["id"])
+
+    row = (
+        await db_session.execute(select(Expense).where(Expense.id == expense_id))
+    ).scalar_one()
+    assert row.discount_source is None
+    assert row.discount_type is None
+    assert row.discount_rule_id is None
+
+    # And the expense still confirms cleanly at its full explicit shares.
+    confirm = await client.post(
+        f"{API}/expenses/{expense_id}/confirm",
+        headers={"Authorization": f"Bearer {_token(alice.id)}"},
+    )
+    assert confirm.status_code == 200, confirm.text
+
+
+async def test_confirm_rejects_frozen_shares_with_discount_snapshot(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """
+    Reviewer finding #2, defense in depth: if a discount snapshot somehow
+    lands on a frozen-shares (M1) expense anyway, confirm must refuse (422)
+    rather than confirm at silently-undiscounted full price.
+    """
+    alice = await _make_orm_user(db_session, "Alice")
+    bob = await _make_orm_user(db_session, "Bob")
+    expense = Expense(
+        paid_by=alice.id,
+        vendor="Amazon",
+        currency="INR",
+        total_minor=10000,
+        subtotal_minor=10000,
+        source=ExpenseSource.manual,
+        parse_status=ParseStatus.parsed,
+        status=ExpenseStatus.active,
+        discount_source=DiscountSource.vendor_rule,
+        discount_type=DiscountType.flat,
+        discount_value_minor=500,
+        discount_threshold_minor=0,
+    )
+    db_session.add(expense)
+    await db_session.flush()
+    line = ExpenseLineItem(
+        expense_id=expense.id,
+        line_no=1,
+        kind=LineItemKind.item,
+        quantity=1,
+        total_minor=10000,
+    )
+    db_session.add(line)
+    await db_session.flush()
+    # Frozen M1-style shares.
+    db_session.add(
+        ItemAssignment(
+            line_item_id=line.id, user_id=alice.id, weight=1, share_minor=4000
+        )
+    )
+    db_session.add(
+        ItemAssignment(line_item_id=line.id, user_id=bob.id, weight=1, share_minor=6000)
+    )
+    await db_session.commit()
+
+    resp = await client.post(
+        f"{API}/expenses/{expense.id}/confirm",
+        headers={"Authorization": f"Bearer {_token(alice.id)}"},
+    )
+    assert resp.status_code == 422, resp.text
+    assert "frozen" in resp.json()["detail"]
+
+    # No ledger entries were posted by the refused confirm.
+    entries = (
+        (
+            await db_session.execute(
+                select(LedgerEntry).where(LedgerEntry.expense_id == expense.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert list(entries) == []
+
+
+async def test_refund_rejected_on_discount_gst_confirmed_expense(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """
+    Reviewer finding #3: the refund flow caps/splits by raw item weights and
+    gross line totals; on an expense confirmed WITH an applied discount or
+    allocated GST it could refund more than a member actually paid. Until
+    the refund flow is allocation-aware, such refunds are refused (409).
+    """
+    alice = await _make_orm_user(db_session, "Alice")
+    bob = await _make_orm_user(db_session, "Bob")
+    expense = Expense(
+        paid_by=alice.id,
+        vendor="Swiggy",
+        currency="INR",
+        total_minor=1,
+        subtotal_minor=1000,
+        source=ExpenseSource.manual,
+        parse_status=ParseStatus.parsed,
+        status=ExpenseStatus.active,
+        gst_mode=GstMode.invoice_exclusive,
+        discount_type=DiscountType.flat,
+        discount_value_minor=100,
+        discount_source=DiscountSource.manual,
+        discount_threshold_minor=0,
+    )
+    db_session.add(expense)
+    await db_session.flush()
+    line1 = ExpenseLineItem(
+        expense_id=expense.id, line_no=1, kind=LineItemKind.item, total_minor=600
+    )
+    line2 = ExpenseLineItem(
+        expense_id=expense.id, line_no=2, kind=LineItemKind.item, total_minor=400
+    )
+    db_session.add_all([line1, line2])
+    await db_session.flush()
+    db_session.add(ItemAssignment(line_item_id=line1.id, user_id=alice.id, weight=1))
+    db_session.add(ItemAssignment(line_item_id=line2.id, user_id=bob.id, weight=1))
+    db_session.add(
+        ExpenseTaxComponent(
+            expense_id=expense.id, name=TaxComponentName.GST, amount_minor=162
+        )
+    )
+    expense.total_minor = 1000 - 100 + 162
+    await db_session.commit()
+    line2_id = uuid.UUID(str(line2.id))
+
+    confirm = await client.post(
+        f"{API}/expenses/{expense.id}/confirm",
+        headers={"Authorization": f"Bearer {_token(alice.id)}"},
+    )
+    assert confirm.status_code == 200, confirm.text
+
+    refund = await client.post(
+        f"{API}/expenses/{expense.id}/refunds",
+        json={"parent_line_id": str(line2_id), "amount_minor": 100},
+        headers={"Authorization": f"Bearer {_token(alice.id)}"},
+    )
+    assert refund.status_code == 409, refund.text
+    assert "discount" in refund.json()["detail"].lower()
+
+    # A plain expense (no discount, no GST) still refunds fine -- guard is
+    # scoped to allocation-affected expenses only.
+    plain = Expense(
+        paid_by=alice.id,
+        vendor="Swiggy",
+        currency="INR",
+        total_minor=1000,
+        subtotal_minor=1000,
+        source=ExpenseSource.manual,
+        parse_status=ParseStatus.parsed,
+        status=ExpenseStatus.active,
+    )
+    db_session.add(plain)
+    await db_session.flush()
+    plain_line = ExpenseLineItem(
+        expense_id=plain.id, line_no=1, kind=LineItemKind.item, total_minor=1000
+    )
+    db_session.add(plain_line)
+    await db_session.flush()
+    db_session.add(ItemAssignment(line_item_id=plain_line.id, user_id=bob.id, weight=1))
+    await db_session.commit()
+    plain_line_id = uuid.UUID(str(plain_line.id))
+
+    confirm2 = await client.post(
+        f"{API}/expenses/{plain.id}/confirm",
+        headers={"Authorization": f"Bearer {_token(alice.id)}"},
+    )
+    assert confirm2.status_code == 200, confirm2.text
+    refund2 = await client.post(
+        f"{API}/expenses/{plain.id}/refunds",
+        json={"parent_line_id": str(plain_line_id), "amount_minor": 100},
+        headers={"Authorization": f"Bearer {_token(alice.id)}"},
+    )
+    assert refund2.status_code == 201, refund2.text
+
+
+async def test_refund_allowed_when_discount_snapshot_inert(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """
+    Verification 4b: the refund guard keys on PERSISTED
+    expense_member_allocations having nonzero discount/GST -- not on the mere
+    presence of a snapshot on the expense row. A below-threshold (inert)
+    discount contributes 0 to every member, so such expenses stay refundable.
+    """
+    alice = await _make_orm_user(db_session, "Alice")
+    bob = await _make_orm_user(db_session, "Bob")
+    expense = Expense(
+        paid_by=alice.id,
+        vendor="Amazon",
+        currency="INR",
+        total_minor=1000,
+        subtotal_minor=1000,
+        source=ExpenseSource.manual,
+        parse_status=ParseStatus.parsed,
+        status=ExpenseStatus.active,
+        discount_source=DiscountSource.manual,
+        discount_type=DiscountType.flat,
+        discount_value_minor=100,
+        discount_threshold_minor=5000,  # subtotal 1000 < 5000 -> inert
+    )
+    db_session.add(expense)
+    await db_session.flush()
+    line = ExpenseLineItem(
+        expense_id=expense.id, line_no=1, kind=LineItemKind.item, total_minor=1000
+    )
+    db_session.add(line)
+    await db_session.flush()
+    db_session.add(ItemAssignment(line_item_id=line.id, user_id=bob.id, weight=1))
+    await db_session.commit()
+    line_id = uuid.UUID(str(line.id))
+
+    confirm = await client.post(
+        f"{API}/expenses/{expense.id}/confirm",
+        headers={"Authorization": f"Bearer {_token(alice.id)}"},
+    )
+    assert confirm.status_code == 200, confirm.text
+
+    rows = (
+        (
+            await db_session.execute(
+                select(ExpenseMemberAllocation).where(
+                    ExpenseMemberAllocation.expense_id == expense.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert all(int(r.discount_minor) == 0 and int(r.gst_minor) == 0 for r in rows)
+
+    refund = await client.post(
+        f"{API}/expenses/{expense.id}/refunds",
+        json={"parent_line_id": str(line_id), "amount_minor": 100},
+        headers={"Authorization": f"Bearer {_token(alice.id)}"},
+    )
+    assert refund.status_code == 201, refund.text

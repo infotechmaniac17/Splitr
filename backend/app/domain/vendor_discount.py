@@ -61,7 +61,7 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import or_, select
+from sqlalchemy import ColumnElement, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models import (
@@ -152,7 +152,7 @@ async def find_matching_rule(
     where group_id IS NULL) and delegates the actual matching decision to
     the pure function above.
     """
-    conditions = [VendorDiscountRule.group_id.is_(None)]
+    conditions: list[ColumnElement[bool]] = [VendorDiscountRule.group_id.is_(None)]
     if group_id is not None:
         conditions.append(VendorDiscountRule.group_id == group_id)
 
