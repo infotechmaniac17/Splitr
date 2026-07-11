@@ -43,7 +43,11 @@ export default function UploadScreen() {
     });
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
-    setPicked({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType || "application/pdf" });
+    setPicked({
+      uri: asset.uri,
+      name: asset.name,
+      mimeType: asset.mimeType || "application/pdf",
+    });
   }
 
   async function pickPhotoFromCamera() {
@@ -70,7 +74,9 @@ export default function UploadScreen() {
     setError(null);
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      setError("Photo library permission is required to attach a receipt image.");
+      setError(
+        "Photo library permission is required to attach a receipt image.",
+      );
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -167,15 +173,19 @@ export default function UploadScreen() {
       <Text style={styles.title}>Upload a receipt</Text>
       <Text style={styles.subtitle}>
         PDF invoices (Amazon, Flipkart) or a photo of a printed/screenshot
-        receipt (Swiggy, Zomato, Zepto, Blinkit) both work — photos go
-        through the vision extraction path.
+        receipt (Swiggy, Zomato, Zepto, Blinkit) both work — photos go through
+        the vision extraction path.
       </Text>
 
       <View style={styles.pickerRow}>
         <Button title="Take photo" onPress={pickPhotoFromCamera} />
       </View>
       <View style={styles.pickerRow}>
-        <Button title="Choose photo" variant="secondary" onPress={pickPhotoFromLibrary} />
+        <Button
+          title="Choose photo"
+          variant="secondary"
+          onPress={pickPhotoFromLibrary}
+        />
       </View>
       <View style={styles.pickerRow}>
         <Button title="Choose PDF" variant="secondary" onPress={pickPdf} />
@@ -184,7 +194,11 @@ export default function UploadScreen() {
       {picked ? (
         <View style={styles.previewCard}>
           {isImage ? (
-            <Image source={{ uri: picked.uri }} style={styles.previewImage} resizeMode="cover" />
+            <Image
+              source={{ uri: picked.uri }}
+              style={styles.previewImage}
+              resizeMode="cover"
+            />
           ) : (
             <Text style={styles.previewFileName}>{picked.name}</Text>
           )}
@@ -211,7 +225,12 @@ export default function UploadScreen() {
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 22, fontWeight: "800", color: colors.text, marginBottom: spacing.xs },
+  title: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: colors.text,
+    marginBottom: spacing.xs,
+  },
   subtitle: { fontSize: 13, color: colors.muted, marginBottom: spacing.lg },
   pickerRow: { marginBottom: spacing.sm },
   previewCard: {

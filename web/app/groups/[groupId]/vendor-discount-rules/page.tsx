@@ -23,15 +23,23 @@ function RuleForm({
   submitting: boolean;
   initial?: VendorDiscountRuleResponse;
 }) {
-  const [vendorPattern, setVendorPattern] = useState(initial?.vendor_pattern ?? "");
-  const [thresholdInput, setThresholdInput] = useState(
-    initial ? formatMoney(initial.min_order_total_minor, "INR", { showSymbol: false }) : "0",
+  const [vendorPattern, setVendorPattern] = useState(
+    initial?.vendor_pattern ?? "",
   );
-  const [type, setType] = useState<DiscountType>(initial?.discount_type ?? DiscountType.flat);
+  const [thresholdInput, setThresholdInput] = useState(
+    initial
+      ? formatMoney(initial.min_order_total_minor, "INR", { showSymbol: false })
+      : "0",
+  );
+  const [type, setType] = useState<DiscountType>(
+    initial?.discount_type ?? DiscountType.flat,
+  );
   const [valueInput, setValueInput] = useState(
     initial
       ? initial.discount_type === DiscountType.flat
-        ? formatMoney(initial.discount_value_minor ?? 0, "INR", { showSymbol: false })
+        ? formatMoney(initial.discount_value_minor ?? 0, "INR", {
+            showSymbol: false,
+          })
         : (initial.discount_percent ?? "")
       : "",
   );
@@ -65,7 +73,10 @@ function RuleForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-2 rounded-xl border border-gray-200 p-3">
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-2 rounded-xl border border-gray-200 p-3"
+    >
       <input
         value={vendorPattern}
         onChange={(e) => setVendorPattern(e.target.value)}
@@ -173,7 +184,9 @@ function RuleRow({
   return (
     <div
       className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${
-        rule.active ? "border-gray-200" : "border-gray-100 bg-gray-50 opacity-50"
+        rule.active
+          ? "border-gray-200"
+          : "border-gray-100 bg-gray-50 opacity-50"
       }`}
     >
       <div>
@@ -216,8 +229,12 @@ function RuleRow({
 
 function VendorDiscountRulesContent({ groupId }: { groupId: string }) {
   const { user } = useAuth();
-  const [groupRules, setGroupRules] = useState<VendorDiscountRuleResponse[]>([]);
-  const [globalRules, setGlobalRules] = useState<VendorDiscountRuleResponse[]>([]);
+  const [groupRules, setGroupRules] = useState<VendorDiscountRuleResponse[]>(
+    [],
+  );
+  const [globalRules, setGlobalRules] = useState<VendorDiscountRuleResponse[]>(
+    [],
+  );
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -238,7 +255,9 @@ function VendorDiscountRulesContent({ groupId }: { groupId: string }) {
         const me = membersRes.members.find((m) => m.user_id === user?.id);
         setIsAdmin(me?.role === "admin");
       })
-      .catch((err) => setError(formatApiError(err, "Could not load discount rules")))
+      .catch((err) =>
+        setError(formatApiError(err, "Could not load discount rules")),
+      )
       .finally(() => setLoading(false));
   }
 
@@ -251,7 +270,10 @@ function VendorDiscountRulesContent({ groupId }: { groupId: string }) {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Vendor discount rules</h1>
-        <Link href={`/groups/${groupId}`} className="text-xs font-medium text-brand-700">
+        <Link
+          href={`/groups/${groupId}`}
+          className="text-xs font-medium text-brand-700"
+        >
           Back to group
         </Link>
       </div>
@@ -266,7 +288,9 @@ function VendorDiscountRulesContent({ groupId }: { groupId: string }) {
               This group{!isAdmin && " (view only — admins can manage)"}
             </h2>
             {groupRules.length === 0 && (
-              <p className="text-sm text-gray-400">No rules for this group yet.</p>
+              <p className="text-sm text-gray-400">
+                No rules for this group yet.
+              </p>
             )}
             {groupRules.map((rule) => (
               <RuleRow
@@ -278,7 +302,11 @@ function VendorDiscountRulesContent({ groupId }: { groupId: string }) {
                   loadAll();
                 }}
                 onEdit={async (payload) => {
-                  await api.updateGroupVendorDiscountRule(groupId, rule.id, payload);
+                  await api.updateGroupVendorDiscountRule(
+                    groupId,
+                    rule.id,
+                    payload,
+                  );
                   loadAll();
                 }}
               />
@@ -304,7 +332,9 @@ function VendorDiscountRulesContent({ groupId }: { groupId: string }) {
               Your global rules (any of your groups)
             </h2>
             {globalRules.length === 0 && (
-              <p className="text-sm text-gray-400">You have no global rules yet.</p>
+              <p className="text-sm text-gray-400">
+                You have no global rules yet.
+              </p>
             )}
             {globalRules.map((rule) => (
               <RuleRow
@@ -326,7 +356,10 @@ function VendorDiscountRulesContent({ groupId }: { groupId: string }) {
               onSubmit={async (payload) => {
                 setCreatingGlobal(true);
                 try {
-                  await api.createGlobalVendorDiscountRule({ ...payload, group_id: null });
+                  await api.createGlobalVendorDiscountRule({
+                    ...payload,
+                    group_id: null,
+                  });
                   loadAll();
                 } finally {
                   setCreatingGlobal(false);

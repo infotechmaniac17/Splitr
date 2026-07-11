@@ -151,11 +151,16 @@ export default function ReviewScreen() {
     <Screen>
       <Text style={styles.title}>Needs review</Text>
       <Text style={styles.subtitle}>
-        {expense.vendor || "This invoice"} didn't pass automatic validation. Fix the
-        highlighted fields below, then resubmit.
+        {expense.vendor || "This invoice"} didn't pass automatic validation. Fix
+        the highlighted fields below, then resubmit.
       </Text>
 
-      <Button title="View original PDF" variant="secondary" onPress={onOpenPdf} style={{ marginTop: spacing.sm }} />
+      <Button
+        title="View original PDF"
+        variant="secondary"
+        onPress={onOpenPdf}
+        style={{ marginTop: spacing.sm }}
+      />
 
       {invoiceLevelIssues.length > 0 && (
         <View style={styles.calloutDanger}>
@@ -173,7 +178,10 @@ export default function ReviewScreen() {
         const lineIssues = issuesByLine.get(row.line_no ?? null) ?? [];
         const flagged = lineIssues.length > 0;
         return (
-          <View key={idx} style={[styles.lineCard, flagged && styles.lineCardFlagged]}>
+          <View
+            key={idx}
+            style={[styles.lineCard, flagged && styles.lineCardFlagged]}
+          >
             {flagged && (
               <Text style={styles.flaggedText}>
                 {lineIssues.map((i) => i.message).join("; ")}
@@ -213,9 +221,13 @@ export default function ReviewScreen() {
 
             <Text style={styles.fieldLabel}>Unit price (minor units)</Text>
             <TextInput
-              value={row.unit_price_minor != null ? String(row.unit_price_minor) : ""}
+              value={
+                row.unit_price_minor != null ? String(row.unit_price_minor) : ""
+              }
               onChangeText={(v: string) =>
-                updateRow(idx, { unit_price_minor: v === "" ? null : Number(v) })
+                updateRow(idx, {
+                  unit_price_minor: v === "" ? null : Number(v),
+                })
               }
               placeholder="Unit price (minor)"
               placeholderTextColor={colors.muted}
@@ -226,7 +238,9 @@ export default function ReviewScreen() {
             <Text style={styles.fieldLabel}>Total (minor units)</Text>
             <TextInput
               value={String(row.total_minor)}
-              onChangeText={(v: string) => updateRow(idx, { total_minor: Number(v) || 0 })}
+              onChangeText={(v: string) =>
+                updateRow(idx, { total_minor: Number(v) || 0 })
+              }
               placeholder="Total (minor)"
               placeholderTextColor={colors.muted}
               keyboardType="numeric"
@@ -241,7 +255,9 @@ export default function ReviewScreen() {
                     <Button
                       key={s}
                       title={s}
-                      variant={row.discount_scope === s ? "primary" : "secondary"}
+                      variant={
+                        row.discount_scope === s ? "primary" : "secondary"
+                      }
                       onPress={() => updateRow(idx, { discount_scope: s })}
                       style={styles.kindChip}
                     />
@@ -250,12 +266,16 @@ export default function ReviewScreen() {
               </>
             )}
 
-            {row.kind !== LineItemKind.item && row.kind !== LineItemKind.discount && (
-              <>
-                <Text style={styles.fieldLabel}>Allocation</Text>
-                <View style={styles.chipRow}>
-                  {[AllocationMethod.equal, AllocationMethod.proportional, AllocationMethod.manual].map(
-                    (a) => (
+            {row.kind !== LineItemKind.item &&
+              row.kind !== LineItemKind.discount && (
+                <>
+                  <Text style={styles.fieldLabel}>Allocation</Text>
+                  <View style={styles.chipRow}>
+                    {[
+                      AllocationMethod.equal,
+                      AllocationMethod.proportional,
+                      AllocationMethod.manual,
+                    ].map((a) => (
                       <Button
                         key={a}
                         title={a}
@@ -263,23 +283,38 @@ export default function ReviewScreen() {
                         onPress={() => updateRow(idx, { allocation: a })}
                         style={styles.kindChip}
                       />
-                    ),
-                  )}
-                </View>
-              </>
-            )}
+                    ))}
+                  </View>
+                </>
+              )}
 
-            <Button title="Remove row" variant="danger" onPress={() => removeRow(idx)} style={{ marginTop: spacing.sm }} />
+            <Button
+              title="Remove row"
+              variant="danger"
+              onPress={() => removeRow(idx)}
+              style={{ marginTop: spacing.sm }}
+            />
           </View>
         );
       })}
 
-      <Button title="+ Add line" variant="secondary" onPress={addRow} style={{ marginBottom: spacing.md }} />
+      <Button
+        title="+ Add line"
+        variant="secondary"
+        onPress={addRow}
+        style={{ marginBottom: spacing.md }}
+      />
 
-      <View style={[styles.reconcileRow, reconciles ? styles.reconcileOk : styles.reconcileWarn]}>
+      <View
+        style={[
+          styles.reconcileRow,
+          reconciles ? styles.reconcileOk : styles.reconcileWarn,
+        ]}
+      >
         <Text style={styles.reconcileText}>Lines sum</Text>
         <Text style={styles.reconcileText}>
-          {formatMoney(linesSum, expense.currency)} / {formatMoney(expense.total_minor, expense.currency)}
+          {formatMoney(linesSum, expense.currency)} /{" "}
+          {formatMoney(expense.total_minor, expense.currency)}
         </Text>
       </View>
 
@@ -330,10 +365,24 @@ const styles = StyleSheet.create({
     padding: spacing.sm + 4,
     marginBottom: spacing.sm,
   },
-  lineCardFlagged: { borderColor: colors.danger, backgroundColor: colors.danger + "0d" },
-  flaggedText: { color: colors.danger, fontSize: 12, fontWeight: "600", marginBottom: spacing.xs },
+  lineCardFlagged: {
+    borderColor: colors.danger,
+    backgroundColor: colors.danger + "0d",
+  },
+  flaggedText: {
+    color: colors.danger,
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: spacing.xs,
+  },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
-  kindChip: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, minHeight: 36, marginRight: spacing.xs, marginBottom: spacing.xs },
+  kindChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    minHeight: 36,
+    marginRight: spacing.xs,
+    marginBottom: spacing.xs,
+  },
   reconcileRow: {
     flexDirection: "row",
     justifyContent: "space-between",

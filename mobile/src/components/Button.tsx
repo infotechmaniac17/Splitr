@@ -1,5 +1,11 @@
 import React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, ViewStyle } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  ViewStyle,
+} from "react-native";
 import { colors, radius, spacing } from "@/lib/theme";
 
 interface ButtonProps {
@@ -35,13 +41,12 @@ export function Button({
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={variant === "secondary" ? colors.primary : "#fff"} />
+        <ActivityIndicator
+          color={variant === "secondary" ? colors.primary : "#fff"}
+        />
       ) : (
         <Text
-          style={[
-            styles.text,
-            variant === "secondary" && styles.secondaryText,
-          ]}
+          style={[styles.text, variant === "secondary" && styles.secondaryText]}
         >
           {title}
         </Text>
@@ -60,7 +65,11 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   primary: { backgroundColor: colors.primary },
-  secondary: { backgroundColor: "transparent", borderWidth: 1, borderColor: colors.primary },
+  secondary: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
   danger: { backgroundColor: colors.danger },
   disabled: { opacity: 0.5 },
   pressed: { opacity: 0.85 },

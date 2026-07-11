@@ -23,7 +23,9 @@ function ExpenseDetailContent({ expenseId }: { expenseId: string }) {
     if (expense.group_id) {
       api
         .getGroupMembers(expense.group_id)
-        .then((res) => setMembers(res.members.map((m) => ({ id: m.user_id, name: m.name }))))
+        .then((res) =>
+          setMembers(res.members.map((m) => ({ id: m.user_id, name: m.name }))),
+        )
         .catch(() => setMembers([]));
     } else if (user) {
       setMembers([{ id: user.id, name: user.name }]);
@@ -47,7 +49,9 @@ function ExpenseDetailContent({ expenseId }: { expenseId: string }) {
     case "failed":
       return <FailedView expense={expense} />;
     case "needs_review":
-      return <NeedsReviewView expense={expense} onCorrected={handleTransition} />;
+      return (
+        <NeedsReviewView expense={expense} onCorrected={handleTransition} />
+      );
     case "parsed":
       return (
         <AssignmentScreen

@@ -71,7 +71,10 @@ function ManualEntryContent() {
         total_minor: totalMinor,
         participants: Array.from(selected),
       });
-      rememberExpense(user.id, { id: expense.id, groupId: expense.group_id ?? null });
+      rememberExpense(user.id, {
+        id: expense.id,
+        groupId: expense.group_id ?? null,
+      });
       router.push(`/expenses/${expense.id}`);
     } catch (err) {
       setError(formatApiError(err, "Could not save expense"));
@@ -107,7 +110,9 @@ function ManualEntryContent() {
       </label>
 
       <div>
-        <p className="mb-2 text-sm font-medium text-gray-700">Split equally between</p>
+        <p className="mb-2 text-sm font-medium text-gray-700">
+          Split equally between
+        </p>
         <div className="flex flex-wrap gap-3">
           {members.map((m) => (
             <button

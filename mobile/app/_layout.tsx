@@ -42,15 +42,27 @@ export default function RootLayout() {
           />
           <Stack.Screen
             name="group/new"
-            options={{ headerShown: true, title: "New group", presentation: "modal" }}
+            options={{
+              headerShown: true,
+              title: "New group",
+              presentation: "modal",
+            }}
           />
           <Stack.Screen
             name="expense/new"
-            options={{ headerShown: true, title: "New expense", presentation: "modal" }}
+            options={{
+              headerShown: true,
+              title: "New expense",
+              presentation: "modal",
+            }}
           />
           <Stack.Screen
             name="expense/upload"
-            options={{ headerShown: true, title: "Upload receipt", presentation: "modal" }}
+            options={{
+              headerShown: true,
+              title: "Upload receipt",
+              presentation: "modal",
+            }}
           />
           <Stack.Screen
             name="expense/[expenseId]/index"

@@ -20,7 +20,11 @@ function NewGroupContent() {
     setSubmitting(true);
     setError(null);
     try {
-      const group = await api.createGroup({ name, created_by: user.id, simplify_debts: true });
+      const group = await api.createGroup({
+        name,
+        created_by: user.id,
+        simplify_debts: true,
+      });
       rememberGroup(user.id, { id: group.id, name: group.name });
       router.push(`/groups/${group.id}`);
     } catch (err) {

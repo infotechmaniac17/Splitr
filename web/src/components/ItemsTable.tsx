@@ -90,7 +90,9 @@ export function ItemsTable({
                   />
                 </td>
                 <td className="px-2 py-2">
-                  <p className={`font-medium leading-tight ${isRefund ? "text-red-700" : ""}`}>
+                  <p
+                    className={`font-medium leading-tight ${isRefund ? "text-red-700" : ""}`}
+                  >
                     {line.description || lineItemKindLabels[line.kind]}
                   </p>
                   {isRefund && (
@@ -99,7 +101,9 @@ export function ItemsTable({
                     </span>
                   )}
                   {unassigned && !isRefund && (
-                    <p className="text-[10px] font-medium text-amber-600">Unassigned</p>
+                    <p className="text-[10px] font-medium text-amber-600">
+                      Unassigned
+                    </p>
                   )}
                 </td>
                 <td className="whitespace-nowrap px-2 py-2 text-right text-gray-500">
@@ -129,12 +133,20 @@ export function ItemsTable({
                         className="flex flex-col items-center gap-0.5 text-[10px]"
                         aria-pressed={selected.has(m.id)}
                       >
-                        <Avatar name={m.name} selected={selected.has(m.id)} size="sm" />
+                        <Avatar
+                          name={m.name}
+                          selected={selected.has(m.id)}
+                          size="sm"
+                        />
                       </button>
                     ))}
-                    {saving && <span className="text-[10px] text-gray-400">Saving…</span>}
+                    {saving && (
+                      <span className="text-[10px] text-gray-400">Saving…</span>
+                    )}
                   </div>
-                  {error && <p className="mt-1 text-[10px] text-red-600">{error}</p>}
+                  {error && (
+                    <p className="mt-1 text-[10px] text-red-600">{error}</p>
+                  )}
                 </td>
               </tr>
             );

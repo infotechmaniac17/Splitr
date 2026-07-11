@@ -19,7 +19,8 @@ export function getApiBaseUrl(): string {
   if (fromEnv) return fromEnv;
 
   const fromConfig = Constants.expoConfig?.extra?.apiBaseUrl;
-  if (typeof fromConfig === "string" && fromConfig.length > 0) return fromConfig;
+  if (typeof fromConfig === "string" && fromConfig.length > 0)
+    return fromConfig;
 
   return "http://localhost:8000";
 }

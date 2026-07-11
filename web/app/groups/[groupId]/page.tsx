@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { GroupBalancesResponse, GroupMemberInfo, GroupResponse } from "@splitr/core";
+import type {
+  GroupBalancesResponse,
+  GroupMemberInfo,
+  GroupResponse,
+} from "@splitr/core";
 import { IdentityGate } from "@/components/IdentityGate";
 import { Money } from "@/components/Money";
 import { Avatar } from "@/components/Avatar";
@@ -28,8 +32,14 @@ function GroupDetailContent({ groupId }: { groupId: string }) {
   }
 
   useEffect(() => {
-    api.getGroup(groupId).then(setGroup).catch(() => setGroup(null));
-    api.getGroupBalances(groupId).then(setBalances).catch(() => setBalances(null));
+    api
+      .getGroup(groupId)
+      .then(setGroup)
+      .catch(() => setGroup(null));
+    api
+      .getGroupBalances(groupId)
+      .then(setBalances)
+      .catch(() => setBalances(null));
     refetchMembers();
     if (user) {
       setExpenses(
@@ -40,7 +50,9 @@ function GroupDetailContent({ groupId }: { groupId: string }) {
   }, [groupId, user]);
 
   function nameFor(userId: string): string {
-    return members.find((m) => m.user_id === userId)?.name ?? userId.slice(0, 8);
+    return (
+      members.find((m) => m.user_id === userId)?.name ?? userId.slice(0, 8)
+    );
   }
 
   async function handleAddMember(e: React.FormEvent) {
@@ -58,14 +70,17 @@ function GroupDetailContent({ groupId }: { groupId: string }) {
     }
   }
 
-  if (!group) return <p className="pt-8 text-center text-sm text-gray-400">Loading…</p>;
+  if (!group)
+    return <p className="pt-8 text-center text-sm text-gray-400">Loading…</p>;
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-bold">{group.name}</h1>
         <p className="text-xs text-gray-400">
-          {group.simplify_debts ? "Debt simplification on" : "Debt simplification off"}
+          {group.simplify_debts
+            ? "Debt simplification on"
+            : "Debt simplification off"}
         </p>
       </div>
 
@@ -141,7 +156,9 @@ function GroupDetailContent({ groupId }: { groupId: string }) {
           </div>
         </div>
         {expenses.length === 0 && (
-          <p className="text-sm text-gray-400">No expenses yet in this browser.</p>
+          <p className="text-sm text-gray-400">
+            No expenses yet in this browser.
+          </p>
         )}
         {expenses.map((e) => (
           <Link

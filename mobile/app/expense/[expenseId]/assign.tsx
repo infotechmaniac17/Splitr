@@ -1,13 +1,21 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, router, useLocalSearchParams } from "expo-router";
-import { formatMoney, type ExpenseResponse, type LineItemResponse } from "@splitr/core";
+import {
+  formatMoney,
+  type ExpenseResponse,
+  type LineItemResponse,
+} from "@splitr/core";
 import { Screen } from "@/components/Screen";
 import { Field } from "@/components/Field";
 import { Button } from "@/components/Button";
 import { apiClient } from "@/lib/api";
 import { useAuth, friendlyApiError } from "@/lib/auth";
-import { getCachedGroupMembers, recordGroupMember, type CachedMember } from "@/lib/localIndex";
+import {
+  getCachedGroupMembers,
+  recordGroupMember,
+  type CachedMember,
+} from "@/lib/localIndex";
 import { colors, radius, spacing } from "@/lib/theme";
 
 /**
@@ -56,12 +64,16 @@ export default function AssignScreen() {
   const assignableLines = useMemo(
     () =>
       (expense?.line_items ?? []).filter(
-        (li) => li.kind === "item" || li.discount_scope === "item" || li.kind === "refund",
+        (li) =>
+          li.kind === "item" ||
+          li.discount_scope === "item" ||
+          li.kind === "refund",
       ),
     [expense],
   );
   const cartLevelLines = useMemo(
-    () => (expense?.line_items ?? []).filter((li) => !assignableLines.includes(li)),
+    () =>
+      (expense?.line_items ?? []).filter((li) => !assignableLines.includes(li)),
     [expense, assignableLines],
   );
 
@@ -82,7 +94,9 @@ export default function AssignScreen() {
     try {
       const found = await apiClient.getUser(newParticipantId.trim());
       setParticipants((prev) =>
-        prev.some((p) => p.id === found.id) ? prev : [...prev, { id: found.id, name: found.name, email: found.email }],
+        prev.some((p) => p.id === found.id)
+          ? prev
+          : [...prev, { id: found.id, name: found.name, email: found.email }],
       );
       if (expense.group_id) {
         await recordGroupMember(expense.group_id, {
@@ -99,12 +113,13 @@ export default function AssignScreen() {
 
   async function onSave() {
     if (!expenseId) return;
-    const assignments = Object.entries(selections).flatMap(([lineItemId, userIds]) =>
-      Array.from(userIds).map((userId) => ({
-        line_item_id: lineItemId,
-        user_id: userId,
-        weight: "1",
-      })),
+    const assignments = Object.entries(selections).flatMap(
+      ([lineItemId, userIds]) =>
+        Array.from(userIds).map((userId) => ({
+          line_item_id: lineItemId,
+          user_id: userId,
+          weight: "1",
+        })),
     );
     if (assignments.length === 0) {
       setSaveError("Assign at least one item to at least one person.");
@@ -133,7 +148,9 @@ export default function AssignScreen() {
   return (
     <Screen>
       <Text style={styles.title}>Assign items</Text>
-      <Text style={styles.subtitle}>Tap a person's chip on each line to include them.</Text>
+      <Text style={styles.subtitle}>
+        Tap a person's chip on each line to include them.
+      </Text>
 
       <Field
         label="Add person by user ID"
@@ -162,14 +179,21 @@ export default function AssignScreen() {
           {cartLevelLines.map((li) => (
             <View key={li.id} style={styles.cartRow}>
               <Text style={styles.cartDesc}>{li.description || li.kind}</Text>
-              <Text style={styles.cartAmount}>{formatMoney(li.total_minor, expense.currency)}</Text>
+              <Text style={styles.cartAmount}>
+                {formatMoney(li.total_minor, expense.currency)}
+              </Text>
             </View>
           ))}
         </>
       )}
 
       {saveError ? <Text style={styles.error}>{saveError}</Text> : null}
-      <Button title="Save assignments" onPress={onSave} loading={saving} style={{ marginTop: spacing.md }} />
+      <Button
+        title="Save assignments"
+        onPress={onSave}
+        loading={saving}
+        style={{ marginTop: spacing.md }}
+      />
     </Screen>
   );
 }
@@ -191,7 +215,9 @@ function LineAssignRow({
     <View style={styles.lineCard}>
       <View style={styles.lineHeader}>
         <Text style={styles.lineDesc}>{line.description || line.kind}</Text>
-        <Text style={styles.lineAmount}>{formatMoney(line.total_minor, currency)}</Text>
+        <Text style={styles.lineAmount}>
+          {formatMoney(line.total_minor, currency)}
+        </Text>
       </View>
       <View style={styles.chipRow}>
         {participants.map((p) => {
@@ -202,7 +228,9 @@ function LineAssignRow({
               onPress={() => onToggle(p.id)}
               style={[styles.chip, active && styles.chipActive]}
             >
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>{p.name}</Text>
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                {p.name}
+              </Text>
             </Pressable>
           );
         })}
@@ -229,8 +257,17 @@ const styles = StyleSheet.create({
     padding: spacing.sm + 4,
     marginBottom: spacing.sm,
   },
-  lineHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: spacing.sm },
-  lineDesc: { color: colors.text, fontSize: 14, fontWeight: "600", flexShrink: 1 },
+  lineHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: spacing.sm,
+  },
+  lineDesc: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "600",
+    flexShrink: 1,
+  },
   lineAmount: { color: colors.text, fontWeight: "700" },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
   chip: {

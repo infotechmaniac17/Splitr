@@ -50,7 +50,10 @@ async function appendUnique(key: string, value: string): Promise<void> {
   }
 }
 
-export async function recordKnownGroup(userId: string, groupId: string): Promise<void> {
+export async function recordKnownGroup(
+  userId: string,
+  groupId: string,
+): Promise<void> {
   await appendUnique(keys.groups(userId), groupId);
 }
 
@@ -58,7 +61,10 @@ export async function getKnownGroupIds(userId: string): Promise<string[]> {
   return readList(keys.groups(userId));
 }
 
-export async function recordKnownExpense(userId: string, expenseId: string): Promise<void> {
+export async function recordKnownExpense(
+  userId: string,
+  expenseId: string,
+): Promise<void> {
   await appendUnique(keys.expenses(userId), expenseId);
 }
 
@@ -66,7 +72,10 @@ export async function getKnownExpenseIds(userId: string): Promise<string[]> {
   return readList(keys.expenses(userId));
 }
 
-export async function recordGroupMember(groupId: string, member: CachedMember): Promise<void> {
+export async function recordGroupMember(
+  groupId: string,
+  member: CachedMember,
+): Promise<void> {
   const raw = await AsyncStorage.getItem(keys.members(groupId));
   const list: CachedMember[] = raw ? JSON.parse(raw) : [];
   if (!list.some((m) => m.id === member.id)) {
@@ -75,7 +84,9 @@ export async function recordGroupMember(groupId: string, member: CachedMember): 
   }
 }
 
-export async function getCachedGroupMembers(groupId: string): Promise<CachedMember[]> {
+export async function getCachedGroupMembers(
+  groupId: string,
+): Promise<CachedMember[]> {
   const raw = await AsyncStorage.getItem(keys.members(groupId));
   return raw ? (JSON.parse(raw) as CachedMember[]) : [];
 }

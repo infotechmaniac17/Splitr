@@ -52,7 +52,10 @@ export function listRememberedGroups(userId: string): RememberedGroup[] {
   return read<RememberedGroup>(key(userId, "groups"));
 }
 
-export function rememberExpense(userId: string, expense: RememberedExpense): void {
+export function rememberExpense(
+  userId: string,
+  expense: RememberedExpense,
+): void {
   const storageKey = key(userId, "expenses");
   const existing = read<RememberedExpense>(storageKey);
   if (existing.some((e) => e.id === expense.id)) return;

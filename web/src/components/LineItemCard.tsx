@@ -26,7 +26,9 @@ export function LineItemCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="font-medium leading-tight">{line.description || "Item"}</p>
+          <p className="font-medium leading-tight">
+            {line.description || "Item"}
+          </p>
           <p className="text-xs text-gray-400">
             Qty {line.quantity}
             {line.unit_price_minor != null && (
@@ -37,7 +39,11 @@ export function LineItemCard({
             )}
           </p>
         </div>
-        <Money minor={line.total_minor} currency={currency} className="font-semibold" />
+        <Money
+          minor={line.total_minor}
+          currency={currency}
+          className="font-semibold"
+        />
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -49,12 +55,18 @@ export function LineItemCard({
             className="flex flex-col items-center gap-1 text-[10px]"
             aria-pressed={assignedUserIds.has(m.id)}
           >
-            <Avatar name={m.name} selected={assignedUserIds.has(m.id)} size="sm" />
+            <Avatar
+              name={m.name}
+              selected={assignedUserIds.has(m.id)}
+              size="sm"
+            />
             <span className="max-w-[3rem] truncate">{m.name}</span>
           </button>
         ))}
         {members.length === 0 && (
-          <p className="text-xs text-gray-400">No group members cached in this browser.</p>
+          <p className="text-xs text-gray-400">
+            No group members cached in this browser.
+          </p>
         )}
       </div>
     </div>

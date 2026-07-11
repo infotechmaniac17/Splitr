@@ -46,7 +46,9 @@ export function DiscountBlock({
     setSubmitting(true);
     setError(null);
     try {
-      const updated = await api.patchExpenseDiscount(expense.id, { discount_type: null });
+      const updated = await api.patchExpenseDiscount(expense.id, {
+        discount_type: null,
+      });
       onUpdated(updated);
     } catch (err) {
       setError(formatApiError(err, "Could not clear discount"));
@@ -59,7 +61,9 @@ export function DiscountBlock({
     setType((expense.discount_type as DiscountType) ?? DiscountType.flat);
     setValueInput(
       expense.discount_type === DiscountType.flat
-        ? formatMoney(expense.discount_value_minor ?? 0, expense.currency, { showSymbol: false })
+        ? formatMoney(expense.discount_value_minor ?? 0, expense.currency, {
+            showSymbol: false,
+          })
         : (expense.discount_percent ?? ""),
     );
     setThresholdInput(
@@ -76,12 +80,18 @@ export function DiscountBlock({
     setSubmitting(true);
     setError(null);
     try {
-      const thresholdMinor = toMinorUnits(thresholdInput || "0", expense.currency);
+      const thresholdMinor = toMinorUnits(
+        thresholdInput || "0",
+        expense.currency,
+      );
       const payload =
         type === DiscountType.flat
           ? {
               discount_type: DiscountType.flat,
-              discount_value_minor: toMinorUnits(valueInput || "0", expense.currency),
+              discount_value_minor: toMinorUnits(
+                valueInput || "0",
+                expense.currency,
+              ),
               discount_percent: null,
               discount_threshold_minor: thresholdMinor,
             }
@@ -104,9 +114,9 @@ export function DiscountBlock({
   if (frozenSharesLikely) {
     return (
       <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-400">
-        Discount editing isn&apos;t available for this expense (its shares look like they
-        were frozen at creation — quick manual entry). Recreate it with itemized line items
-        to use vendor discounts.
+        Discount editing isn&apos;t available for this expense (its shares look
+        like they were frozen at creation — quick manual entry). Recreate it
+        with itemized line items to use vendor discounts.
       </div>
     );
   }
@@ -180,12 +190,18 @@ export function DiscountBlock({
 
   const discountLabel =
     expense.discount_type === DiscountType.flat ? (
-      <Money minor={expense.discount_value_minor ?? 0} currency={expense.currency} />
+      <Money
+        minor={expense.discount_value_minor ?? 0}
+        currency={expense.currency}
+      />
     ) : (
       `${expense.discount_percent}%`
     );
   const thresholdLabel = (
-    <Money minor={expense.discount_threshold_minor ?? 0} currency={expense.currency} />
+    <Money
+      minor={expense.discount_threshold_minor ?? 0}
+      currency={expense.currency}
+    />
   );
 
   return (
@@ -193,21 +209,30 @@ export function DiscountBlock({
       {discountRecordedButInert ? (
         <div className="rounded-lg bg-gray-100 px-3 py-2 text-gray-500">
           {expense.vendor ? `${expense.vendor}: ` : ""}
-          {discountLabel} off on {thresholdLabel}+ — not applied (subtotal below threshold)
+          {discountLabel} off on {thresholdLabel}+ — not applied (subtotal below
+          threshold)
         </div>
       ) : (
         <div className="rounded-lg bg-emerald-50 px-3 py-2 text-emerald-800">
           {isVendorRule && expense.vendor ? `${expense.vendor}: ` : ""}
-          {discountLabel} off {expense.discount_threshold_minor ? <>on {thresholdLabel}+ </> : null}
+          {discountLabel} off{" "}
+          {expense.discount_threshold_minor ? <>on {thresholdLabel}+ </> : null}
           — applied
         </div>
       )}
       <div className="flex items-center justify-between text-xs text-gray-400">
         <span>
-          Source: {expense.discount_source ? discountSourceLabels[expense.discount_source] : "—"}
+          Source:{" "}
+          {expense.discount_source
+            ? discountSourceLabels[expense.discount_source]
+            : "—"}
         </span>
         <div className="flex gap-3">
-          <button type="button" onClick={startEditing} className="font-semibold text-brand-700">
+          <button
+            type="button"
+            onClick={startEditing}
+            className="font-semibold text-brand-700"
+          >
             {isManual ? "Edit" : "Override"}
           </button>
           <button

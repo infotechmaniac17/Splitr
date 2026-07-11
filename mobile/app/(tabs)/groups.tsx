@@ -19,10 +19,15 @@ export default function GroupsScreen() {
     setLoading(true);
     try {
       const ids = await getKnownGroupIds(user.id);
-      const results = await Promise.allSettled(ids.map((id) => apiClient.getGroup(id)));
+      const results = await Promise.allSettled(
+        ids.map((id) => apiClient.getGroup(id)),
+      );
       setGroups(
         results
-          .filter((r): r is PromiseFulfilledResult<GroupResponse> => r.status === "fulfilled")
+          .filter(
+            (r): r is PromiseFulfilledResult<GroupResponse> =>
+              r.status === "fulfilled",
+          )
           .map((r) => r.value),
       );
     } finally {
@@ -52,7 +57,11 @@ export default function GroupsScreen() {
         </View>
       ) : (
         groups.map((g) => (
-          <Pressable key={g.id} style={styles.row} onPress={() => router.push(`/group/${g.id}`)}>
+          <Pressable
+            key={g.id}
+            style={styles.row}
+            onPress={() => router.push(`/group/${g.id}`)}
+          >
             <Text style={styles.rowTitle}>{g.name}</Text>
             <Text style={styles.rowChevron}>{">"}</Text>
           </Pressable>

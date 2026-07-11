@@ -74,7 +74,11 @@ const styles = StyleSheet.create({
   header: { marginTop: spacing.xl, marginBottom: spacing.lg },
   title: { fontSize: 32, fontWeight: "800", color: colors.text },
   subtitle: { fontSize: 15, color: colors.muted, marginTop: spacing.xs },
-  footer: { flexDirection: "row", justifyContent: "center", marginTop: spacing.lg },
+  footer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: spacing.lg,
+  },
   footerText: { color: colors.muted },
   link: { color: colors.primary, fontWeight: "600" },
 });

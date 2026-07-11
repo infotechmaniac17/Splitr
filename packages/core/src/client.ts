@@ -288,7 +288,9 @@ export class SplitrApiClient {
   // rules -- this client doesn't enforce those, it just surfaces whatever
   // 403 the backend returns.
 
-  listGroupVendorDiscountRules(groupId: string): Promise<VendorDiscountRulesListResponse> {
+  listGroupVendorDiscountRules(
+    groupId: string,
+  ): Promise<VendorDiscountRulesListResponse> {
     return this.request(
       "GET",
       `/groups/${groupId}/vendor-discount-rules`,
@@ -363,7 +365,9 @@ export class SplitrApiClient {
     );
   }
 
-  deactivateGlobalVendorDiscountRule(ruleId: string): Promise<VendorDiscountRuleResponse> {
+  deactivateGlobalVendorDiscountRule(
+    ruleId: string,
+  ): Promise<VendorDiscountRuleResponse> {
     return this.request(
       "DELETE",
       `/vendor-discount-rules/global/${ruleId}`,
@@ -409,7 +413,10 @@ export class SplitrApiClient {
     );
   }
 
-  createRefund(expenseId: string, payload: RefundCreate): Promise<ExpenseResponse> {
+  createRefund(
+    expenseId: string,
+    payload: RefundCreate,
+  ): Promise<ExpenseResponse> {
     return this.request(
       "POST",
       `/expenses/${expenseId}/refunds`,

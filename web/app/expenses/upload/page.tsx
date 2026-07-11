@@ -27,7 +27,10 @@ function UploadContent() {
         paidBy: user.id,
         groupId,
       });
-      rememberExpense(user.id, { id: expense.id, groupId: expense.group_id ?? null });
+      rememberExpense(user.id, {
+        id: expense.id,
+        groupId: expense.group_id ?? null,
+      });
       router.push(`/expenses/${expense.id}`);
     } catch (err) {
       setError(

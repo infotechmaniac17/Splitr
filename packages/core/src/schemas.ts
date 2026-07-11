@@ -247,7 +247,9 @@ export const memberBreakdownResponseSchema = z.object({
   gst_minor: z.number().int(),
   total_minor: z.number().int(),
 });
-export type MemberBreakdownResponse = z.infer<typeof memberBreakdownResponseSchema>;
+export type MemberBreakdownResponse = z.infer<
+  typeof memberBreakdownResponseSchema
+>;
 
 export const allocationProblemSchema = z.object({
   code: z.string(),
@@ -273,7 +275,9 @@ export const allocationPreviewResponseSchema = z.object({
   discount_recorded_but_inert: z.boolean(),
   problems: z.array(allocationProblemSchema),
 });
-export type AllocationPreviewResponse = z.infer<typeof allocationPreviewResponseSchema>;
+export type AllocationPreviewResponse = z.infer<
+  typeof allocationPreviewResponseSchema
+>;
 
 // M6-M8 item 7a: PATCH /expenses/{id}/discount payload. `discount_type:
 // null/undefined` means CLEAR the manual snapshot and re-run vendor-rule
@@ -475,7 +479,9 @@ export const vendorDiscountRuleCreateSchema = z.object({
   discount_value_minor: z.number().int().nullable().optional(),
   discount_percent: z.union([z.string(), z.number()]).nullable().optional(),
 });
-export type VendorDiscountRuleCreate = z.input<typeof vendorDiscountRuleCreateSchema>;
+export type VendorDiscountRuleCreate = z.input<
+  typeof vendorDiscountRuleCreateSchema
+>;
 
 export const vendorDiscountRuleUpdateSchema = z.object({
   vendor_pattern: z.string().min(1).nullable().optional(),
@@ -485,7 +491,9 @@ export const vendorDiscountRuleUpdateSchema = z.object({
   discount_percent: z.union([z.string(), z.number()]).nullable().optional(),
   active: z.boolean().nullable().optional(),
 });
-export type VendorDiscountRuleUpdate = z.input<typeof vendorDiscountRuleUpdateSchema>;
+export type VendorDiscountRuleUpdate = z.input<
+  typeof vendorDiscountRuleUpdateSchema
+>;
 
 export const vendorDiscountRuleResponseSchema = z.object({
   id: uuid,
@@ -500,7 +508,9 @@ export const vendorDiscountRuleResponseSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
 });
-export type VendorDiscountRuleResponse = z.infer<typeof vendorDiscountRuleResponseSchema>;
+export type VendorDiscountRuleResponse = z.infer<
+  typeof vendorDiscountRuleResponseSchema
+>;
 
 export const vendorDiscountRulesListResponseSchema = z.object({
   rules: z.array(vendorDiscountRuleResponseSchema),

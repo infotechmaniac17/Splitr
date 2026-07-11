@@ -8,7 +8,8 @@ export const GroupMemberRole = {
   admin: "admin",
   member: "member",
 } as const;
-export type GroupMemberRole = (typeof GroupMemberRole)[keyof typeof GroupMemberRole];
+export type GroupMemberRole =
+  (typeof GroupMemberRole)[keyof typeof GroupMemberRole];
 
 export const LineItemKind = {
   item: "item",
@@ -33,7 +34,8 @@ export const AllocationMethod = {
   proportional: "proportional",
   manual: "manual",
 } as const;
-export type AllocationMethod = (typeof AllocationMethod)[keyof typeof AllocationMethod];
+export type AllocationMethod =
+  (typeof AllocationMethod)[keyof typeof AllocationMethod];
 
 export const ExpenseSource = {
   pdf: "pdf",
@@ -62,7 +64,8 @@ export const LedgerEntryType = {
   settlement: "settlement",
   adjustment: "adjustment",
 } as const;
-export type LedgerEntryType = (typeof LedgerEntryType)[keyof typeof LedgerEntryType];
+export type LedgerEntryType =
+  (typeof LedgerEntryType)[keyof typeof LedgerEntryType];
 
 export const SettlementMethod = {
   upi: "upi",
@@ -70,7 +73,8 @@ export const SettlementMethod = {
   bank: "bank",
   other: "other",
 } as const;
-export type SettlementMethod = (typeof SettlementMethod)[keyof typeof SettlementMethod];
+export type SettlementMethod =
+  (typeof SettlementMethod)[keyof typeof SettlementMethod];
 
 export const DiscountType = {
   flat: "flat",
@@ -83,7 +87,8 @@ export const DiscountSource = {
   vendor_rule: "vendor_rule",
   extracted: "extracted",
 } as const;
-export type DiscountSource = (typeof DiscountSource)[keyof typeof DiscountSource];
+export type DiscountSource =
+  (typeof DiscountSource)[keyof typeof DiscountSource];
 
 /** Stable validation issue codes, API_CONTRACT.md §4. */
 export const ValidationIssueCode = {

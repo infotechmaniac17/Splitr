@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { toMinorUnits, type AllocationPreviewResponse, type ExpenseResponse } from "@splitr/core";
+import {
+  toMinorUnits,
+  type AllocationPreviewResponse,
+  type ExpenseResponse,
+} from "@splitr/core";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
 import { SplitPreviewPanel } from "@/components/SplitPreviewPanel";
@@ -41,9 +45,10 @@ function RefundPanel({
   if (blocked) {
     return (
       <div className="rounded-lg bg-gray-100 px-3 py-2 text-xs text-gray-500">
-        Refunds unavailable on discounted/taxed expenses — this expense was confirmed with
-        an applied discount and/or allocated GST, which the refund flow can&apos;t yet account
-        for. Record a correcting settlement instead, or void and recreate the expense.
+        Refunds unavailable on discounted/taxed expenses — this expense was
+        confirmed with an applied discount and/or allocated GST, which the
+        refund flow can&apos;t yet account for. Record a correcting settlement
+        instead, or void and recreate the expense.
       </div>
     );
   }
@@ -68,8 +73,13 @@ function RefundPanel({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-2 rounded-lg border border-gray-200 p-3 text-sm">
-      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Record a refund</p>
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-2 rounded-lg border border-gray-200 p-3 text-sm"
+    >
+      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+        Record a refund
+      </p>
       <select
         value={parentLineId}
         onChange={(e) => setParentLineId(e.target.value)}
@@ -108,7 +118,9 @@ export function ConfirmedSummary({
   members?: RememberedMember[];
 }) {
   const [expense, setExpense] = useState(initialExpense);
-  const [preview, setPreview] = useState<AllocationPreviewResponse | null>(null);
+  const [preview, setPreview] = useState<AllocationPreviewResponse | null>(
+    null,
+  );
   const [previewLoading, setPreviewLoading] = useState(true);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
@@ -118,7 +130,9 @@ export function ConfirmedSummary({
     api
       .getAllocationPreview(expense.id)
       .then(setPreview)
-      .catch((err) => setPreviewError(formatApiError(err, "Could not load split")))
+      .catch((err) =>
+        setPreviewError(formatApiError(err, "Could not load split")),
+      )
       .finally(() => setPreviewLoading(false));
   }
 
@@ -163,8 +177,8 @@ export function ConfirmedSummary({
       />
 
       <p className="text-center text-sm text-gray-500">
-        This expense has been posted to the ledger and can&apos;t be edited directly —
-        corrections happen as new refund/adjustment entries.
+        This expense has been posted to the ledger and can&apos;t be edited
+        directly — corrections happen as new refund/adjustment entries.
       </p>
       {expense.group_id && (
         <Link

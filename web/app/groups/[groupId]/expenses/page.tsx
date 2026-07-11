@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { GroupExpensesGroupedResponse, GroupMemberInfo } from "@splitr/core";
+import type {
+  GroupExpensesGroupedResponse,
+  GroupMemberInfo,
+} from "@splitr/core";
 import { parseStatusLabels } from "@splitr/core";
 import { IdentityGate } from "@/components/IdentityGate";
 import { Money } from "@/components/Money";
@@ -24,7 +27,9 @@ function GroupExpensesContent({ groupId }: { groupId: string }) {
   const [error, setError] = useState<string | null>(null);
 
   function nameFor(userId: string): string {
-    return members.find((m) => m.user_id === userId)?.name ?? userId.slice(0, 8);
+    return (
+      members.find((m) => m.user_id === userId)?.name ?? userId.slice(0, 8)
+    );
   }
 
   function load() {
@@ -59,7 +64,10 @@ function GroupExpensesContent({ groupId }: { groupId: string }) {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Expenses</h1>
-        <Link href={`/groups/${groupId}`} className="text-xs font-medium text-brand-700">
+        <Link
+          href={`/groups/${groupId}`}
+          className="text-xs font-medium text-brand-700"
+        >
           Back to group
         </Link>
       </div>
@@ -121,48 +129,59 @@ function GroupExpensesContent({ groupId }: { groupId: string }) {
 
       {!loading &&
         !error &&
-        [...datedBuckets, ...(undatedBucket ? [undatedBucket] : [])].map((bucket) => (
-          <section key={bucket.date ?? "undated"} className="flex flex-col gap-2">
-            <h2 className="text-sm font-semibold text-gray-500">
-              {bucket.date ?? "Undated"}
-            </h2>
-            {bucket.expenses.map((exp) => (
-              <Link
-                key={exp.id}
-                href={`/expenses/${exp.id}`}
-                className="flex flex-col gap-1 rounded-xl border border-gray-200 p-3"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">{exp.vendor ?? "Expense"}</span>
-                  <Money minor={exp.total_minor} className="font-semibold" />
-                </div>
-                <div className="flex items-center justify-between text-xs text-gray-400">
-                  <span>{parseStatusLabels[exp.parse_status]}</span>
-                  <span>Paid by {nameFor(exp.paid_by)}</span>
-                </div>
-                {exp.member_shares.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {exp.member_shares.map((s) => (
-                      <span
-                        key={s.user_id}
-                        className="flex items-center gap-1 rounded-full bg-gray-50 px-2 py-0.5 text-[11px]"
-                      >
-                        <Avatar name={nameFor(s.user_id)} size="sm" />
-                        {nameFor(s.user_id)}
-                        <Money minor={s.share_minor} />
-                      </span>
-                    ))}
+        [...datedBuckets, ...(undatedBucket ? [undatedBucket] : [])].map(
+          (bucket) => (
+            <section
+              key={bucket.date ?? "undated"}
+              className="flex flex-col gap-2"
+            >
+              <h2 className="text-sm font-semibold text-gray-500">
+                {bucket.date ?? "Undated"}
+              </h2>
+              {bucket.expenses.map((exp) => (
+                <Link
+                  key={exp.id}
+                  href={`/expenses/${exp.id}`}
+                  className="flex flex-col gap-1 rounded-xl border border-gray-200 p-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">
+                      {exp.vendor ?? "Expense"}
+                    </span>
+                    <Money minor={exp.total_minor} className="font-semibold" />
                   </div>
-                )}
-              </Link>
-            ))}
-          </section>
-        ))}
+                  <div className="flex items-center justify-between text-xs text-gray-400">
+                    <span>{parseStatusLabels[exp.parse_status]}</span>
+                    <span>Paid by {nameFor(exp.paid_by)}</span>
+                  </div>
+                  {exp.member_shares.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {exp.member_shares.map((s) => (
+                        <span
+                          key={s.user_id}
+                          className="flex items-center gap-1 rounded-full bg-gray-50 px-2 py-0.5 text-[11px]"
+                        >
+                          <Avatar name={nameFor(s.user_id)} size="sm" />
+                          {nameFor(s.user_id)}
+                          <Money minor={s.share_minor} />
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </Link>
+              ))}
+            </section>
+          ),
+        )}
     </div>
   );
 }
 
-export default function GroupExpensesPage({ params }: { params: { groupId: string } }) {
+export default function GroupExpensesPage({
+  params,
+}: {
+  params: { groupId: string };
+}) {
   const { groupId } = params;
   return (
     <IdentityGate>

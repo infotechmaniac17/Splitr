@@ -31,6 +31,9 @@ export async function POST(req: NextRequest) {
     if (err instanceof ApiError) {
       return NextResponse.json({ detail: err.detail }, { status: err.status });
     }
-    return NextResponse.json({ detail: "Registration failed" }, { status: 502 });
+    return NextResponse.json(
+      { detail: "Registration failed" },
+      { status: 502 },
+    );
   }
 }

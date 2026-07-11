@@ -1,5 +1,11 @@
 import React from "react";
-import { StyleSheet, Text, TextInput, TextInputProps, View } from "react-native";
+import {
+  StyleSheet,
+  Text,
+  TextInput,
+  TextInputProps,
+  View,
+} from "react-native";
 import { colors, radius, spacing } from "@/lib/theme";
 
 interface FieldProps extends TextInputProps {
@@ -23,7 +29,12 @@ export function Field({ label, error, style, ...rest }: FieldProps) {
 
 const styles = StyleSheet.create({
   wrap: { marginBottom: spacing.md },
-  label: { fontSize: 13, fontWeight: "600", color: colors.muted, marginBottom: spacing.xs },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.muted,
+    marginBottom: spacing.xs,
+  },
   input: {
     borderWidth: 1,
     borderColor: colors.border,

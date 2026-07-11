@@ -7,8 +7,9 @@
     "mobile"
   ],
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "@types/react": "~19.2.2"
+    "@types/react": "~19.2.2",
+    "prettier": "^3.9.5",
+    "typescript": "^5.9.3"
   },
   "scripts": {
     "dev:web": "npm run dev --workspace web",
@@ -18,6 +19,8 @@
     "typecheck:core": "npm run typecheck --workspace @splitr/core",
     "start:mobile": "npm run start --workspace mobile",
     "lint:mobile": "npm run lint --workspace mobile",
-    "typecheck:mobile": "npm run typecheck --workspace mobile"
+    "typecheck:mobile": "npm run typecheck --workspace mobile",
+    "format": "prettier --write \"web/**/*.{ts,tsx,css,js,json}\" \"packages/core/src/**/*.ts\" \"mobile/**/*.{ts,tsx}\" --ignore-path .gitignore",
+    "format:check": "prettier --check \"web/**/*.{ts,tsx,css,js,json}\" \"packages/core/src/**/*.ts\" \"mobile/**/*.{ts,tsx}\" --ignore-path .gitignore"
   }
 }

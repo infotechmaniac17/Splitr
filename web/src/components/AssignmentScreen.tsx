@@ -54,7 +54,8 @@ export function AssignmentScreen({
   const itemLines = useMemo(
     () =>
       expense.line_items.filter(
-        (li) => li.kind === LineItemKind.item || li.kind === LineItemKind.refund,
+        (li) =>
+          li.kind === LineItemKind.item || li.kind === LineItemKind.refund,
       ),
     [expense.line_items],
   );
@@ -73,7 +74,9 @@ export function AssignmentScreen({
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
 
-  const [preview, setPreview] = useState<AllocationPreviewResponse | null>(null);
+  const [preview, setPreview] = useState<AllocationPreviewResponse | null>(
+    null,
+  );
   const [previewLoading, setPreviewLoading] = useState(true);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
@@ -96,7 +99,9 @@ export function AssignmentScreen({
     api
       .getAllocationPreview(expense.id)
       .then(setPreview)
-      .catch((err) => setPreviewError(formatApiError(err, "Could not load split preview")))
+      .catch((err) =>
+        setPreviewError(formatApiError(err, "Could not load split preview")),
+      )
       .finally(() => setPreviewLoading(false));
   }, [expense.id]);
 
@@ -111,7 +116,8 @@ export function AssignmentScreen({
   // this; expenses/manual/page.tsx (the only creator of this shape) always
   // leaves exactly one synthetic line item, so that's the best signal
   // available client-side without risking the 422. See final report.
-  const frozenSharesLikely = expense.source === "manual" && expense.line_items.length <= 1;
+  const frozenSharesLikely =
+    expense.source === "manual" && expense.line_items.length <= 1;
 
   async function persistRow(lineId: string, selected: Set<string>) {
     setRowSaving((prev) => new Set(prev).add(lineId));
@@ -133,10 +139,17 @@ export function AssignmentScreen({
         // the assignment-read gap noted in the module docstring: this is
         // only as complete as this session's own edits).
         const assignments = [];
-        for (const [otherLineId, otherSelected] of rowSelectionsRef.current.entries()) {
+        for (const [
+          otherLineId,
+          otherSelected,
+        ] of rowSelectionsRef.current.entries()) {
           if (otherLineId === lineId) continue;
           for (const userId of otherSelected) {
-            assignments.push({ line_item_id: otherLineId, user_id: userId, weight: "1" });
+            assignments.push({
+              line_item_id: otherLineId,
+              user_id: userId,
+              weight: "1",
+            });
           }
         }
         if (assignments.length > 0) {
@@ -145,7 +158,9 @@ export function AssignmentScreen({
       }
       refetchPreview();
     } catch (err) {
-      setRowError((prev) => new Map(prev).set(lineId, formatApiError(err, "Could not save")));
+      setRowError((prev) =>
+        new Map(prev).set(lineId, formatApiError(err, "Could not save")),
+      );
       // Rollback: re-fetch nothing (we don't have server truth to roll back
       // to -- see module docstring); instead just flag the row failed so
       // the user can retry the toggle.
@@ -204,7 +219,10 @@ export function AssignmentScreen({
     try {
       const itemIds = [...checkedRows];
       const memberIds = [...bulkTarget];
-      await api.bulkPutAssignments(expense.id, { item_ids: itemIds, member_ids: memberIds });
+      await api.bulkPutAssignments(expense.id, {
+        item_ids: itemIds,
+        member_ids: memberIds,
+      });
       setRowSelections((prev) => {
         const next = new Map(prev);
         for (const id of itemIds) next.set(id, new Set(memberIds));
@@ -233,7 +251,9 @@ export function AssignmentScreen({
       return !s || s.size === 0;
     });
     if (first) {
-      rowRefs.current.get(first.id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      rowRefs.current
+        .get(first.id)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }
 
@@ -263,8 +283,9 @@ export function AssignmentScreen({
         <div>
           <h1 className="text-xl font-bold">{expense.vendor ?? "Expense"}</h1>
           <p className="text-xs text-gray-400">
-            {expense.invoice_date ?? "No invoice date"} · {itemLines.length - unassignedCount}/
-            {itemLines.length} items assigned
+            {expense.invoice_date ?? "No invoice date"} ·{" "}
+            {itemLines.length - unassignedCount}/{itemLines.length} items
+            assigned
           </p>
         </div>
         <StatusBadge status={expense.parse_status} />
@@ -276,19 +297,29 @@ export function AssignmentScreen({
         </p>
         <DiscountBlock
           expense={expense}
-          discountRecordedButInert={preview?.discount_recorded_but_inert ?? false}
+          discountRecordedButInert={
+            preview?.discount_recorded_but_inert ?? false
+          }
           frozenSharesLikely={frozenSharesLikely}
           onUpdated={() => refetchPreview()}
         />
       </section>
 
-      {preview && preview.exclusive_gst_minor != null && preview.exclusive_gst_minor !== 0 && (
-        <section className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
-          GST: <Money minor={preview.exclusive_gst_minor} currency={expense.currency} className="font-semibold" /> (see
-          split preview below for the full per-member breakdown; a printed per-item GST rate
-          column isn&apos;t shown here — see final report for the API gap).
-        </section>
-      )}
+      {preview &&
+        preview.exclusive_gst_minor != null &&
+        preview.exclusive_gst_minor !== 0 && (
+          <section className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+            GST:{" "}
+            <Money
+              minor={preview.exclusive_gst_minor}
+              currency={expense.currency}
+              className="font-semibold"
+            />{" "}
+            (see split preview below for the full per-member breakdown; a
+            printed per-item GST rate column isn&apos;t shown here — see final
+            report for the API gap).
+          </section>
+        )}
 
       {checkedRows.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2">
@@ -370,8 +401,8 @@ export function AssignmentScreen({
           onClick={scrollToFirstUnassigned}
           className="text-left text-sm font-medium text-amber-700 underline"
         >
-          {unassignedCount} item{unassignedCount === 1 ? "" : "s"} unassigned — tap to jump to
-          the first one
+          {unassignedCount} item{unassignedCount === 1 ? "" : "s"} unassigned —
+          tap to jump to the first one
         </button>
       )}
 

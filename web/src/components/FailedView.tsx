@@ -8,8 +8,8 @@ export function FailedView({ expense }: { expense: ExpenseResponse }) {
       <span className="text-4xl">⚠️</span>
       <h1 className="text-xl font-bold">Couldn&apos;t parse this PDF</h1>
       <p className="text-sm text-gray-500">
-        The file looks corrupted or is an unsupported format. You can still record this expense
-        by hand — it only takes a few seconds.
+        The file looks corrupted or is an unsupported format. You can still
+        record this expense by hand — it only takes a few seconds.
       </p>
       <Link
         href={`/expenses/manual${expense.group_id ? `?groupId=${expense.group_id}` : ""}`}

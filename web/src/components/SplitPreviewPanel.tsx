@@ -46,7 +46,9 @@ export function SplitPreviewPanel({
         Split preview
       </p>
 
-      {loading && <p className="text-sm text-gray-400">Loading split preview…</p>}
+      {loading && (
+        <p className="text-sm text-gray-400">Loading split preview…</p>
+      )}
       {error && !loading && <p className="text-sm text-red-600">{error}</p>}
 
       {!loading && !error && preview && (
@@ -61,12 +63,16 @@ export function SplitPreviewPanel({
 
           {preview.members.length === 0 ? (
             <p className="text-sm text-gray-400">
-              Nothing to preview yet — assign at least one item to see the split.
+              Nothing to preview yet — assign at least one item to see the
+              split.
             </p>
           ) : (
             <div className="flex flex-col gap-2">
               {preview.members.map((m) => (
-                <div key={m.user_id} className="rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                <div
+                  key={m.user_id}
+                  className="rounded-lg bg-gray-50 px-3 py-2 text-sm"
+                >
                   <button
                     type="button"
                     onClick={() => toggle(m.user_id)}
@@ -77,8 +83,14 @@ export function SplitPreviewPanel({
                       {nameFor(m.user_id)}
                     </span>
                     <span className="flex items-center gap-2">
-                      <Money minor={m.total_minor} currency={currency} className="font-semibold" />
-                      <span className="text-gray-400">{expanded.has(m.user_id) ? "▾" : "▸"}</span>
+                      <Money
+                        minor={m.total_minor}
+                        currency={currency}
+                        className="font-semibold"
+                      />
+                      <span className="text-gray-400">
+                        {expanded.has(m.user_id) ? "▾" : "▸"}
+                      </span>
                     </span>
                   </button>
                   {expanded.has(m.user_id) && (
@@ -107,18 +119,26 @@ export function SplitPreviewPanel({
                     <Money minor={preview.subtotal_minor} currency={currency} />
                   </div>
                 )}
-                {preview.applied_discount_minor != null && preview.applied_discount_minor !== 0 && (
-                  <div className="flex justify-between">
-                    <span>Discount applied</span>
-                    <Money minor={preview.applied_discount_minor} currency={currency} />
-                  </div>
-                )}
-                {preview.exclusive_gst_minor != null && preview.exclusive_gst_minor !== 0 && (
-                  <div className="flex justify-between">
-                    <span>GST</span>
-                    <Money minor={preview.exclusive_gst_minor} currency={currency} />
-                  </div>
-                )}
+                {preview.applied_discount_minor != null &&
+                  preview.applied_discount_minor !== 0 && (
+                    <div className="flex justify-between">
+                      <span>Discount applied</span>
+                      <Money
+                        minor={preview.applied_discount_minor}
+                        currency={currency}
+                      />
+                    </div>
+                  )}
+                {preview.exclusive_gst_minor != null &&
+                  preview.exclusive_gst_minor !== 0 && (
+                    <div className="flex justify-between">
+                      <span>GST</span>
+                      <Money
+                        minor={preview.exclusive_gst_minor}
+                        currency={currency}
+                      />
+                    </div>
+                  )}
               </div>
             </div>
           )}

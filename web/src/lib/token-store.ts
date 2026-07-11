@@ -64,7 +64,10 @@ export function clearSession(): void {
 function scheduleRefresh(): void {
   if (refreshTimer) clearTimeout(refreshTimer);
   if (!expiresAt) return;
-  const delay = Math.max(expiresAt - Date.now() - REFRESH_SKEW_MS, MIN_REFRESH_DELAY_MS);
+  const delay = Math.max(
+    expiresAt - Date.now() - REFRESH_SKEW_MS,
+    MIN_REFRESH_DELAY_MS,
+  );
   refreshTimer = setTimeout(() => {
     void refreshAccessToken();
   }, delay);
@@ -92,7 +95,10 @@ export function refreshAccessToken(): Promise<boolean> {
         clearSession();
         return false;
       }
-      const body = (await res.json()) as { access_token: string; expires_in: number };
+      const body = (await res.json()) as {
+        access_token: string;
+        expires_in: number;
+      };
       setSession(body.access_token, body.expires_in);
       return true;
     } catch {

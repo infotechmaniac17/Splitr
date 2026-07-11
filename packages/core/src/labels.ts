@@ -1,6 +1,11 @@
 /** Human-readable labels for enum wire values (used by both web + mobile). */
 
-import { DiscountSource, LineItemKind, ParseStatus, ValidationIssueCode } from "./enums";
+import {
+  DiscountSource,
+  LineItemKind,
+  ParseStatus,
+  ValidationIssueCode,
+} from "./enums";
 
 export const lineItemKindLabels: Record<LineItemKind, string> = {
   item: "Item",

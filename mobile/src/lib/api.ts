@@ -28,7 +28,9 @@ const baseClient = new SplitrApiClient({
 function withAuthRetry<T extends object>(client: T): T {
   return new Proxy(client, {
     get(target, prop, receiver) {
-      const original = Reflect.get(target, prop, receiver) as (...a: unknown[]) => unknown;
+      const original = Reflect.get(target, prop, receiver) as (
+        ...a: unknown[]
+      ) => unknown;
       if (typeof original !== "function") return original;
 
       // Some client methods (e.g. pdfUrl) are synchronous string builders,
