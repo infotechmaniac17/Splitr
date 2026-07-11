@@ -19,6 +19,15 @@ source of truth for the schema, PDF pipeline, and splitting algorithm.**
   interface in `backend/app/extraction/providers/`, so Gemini/OpenAI/local
   are swappable). API keys via env vars only, never committed.
 
+## Standing rules (do not re-litigate)
+- **Environment / Docker:** Docker Desktop is installed on the D: drive and is
+  ALWAYS already running. Never check C:\ paths, never attempt to start
+  Docker, never ask if it's installed. The only permitted check is
+  `docker ps`; if it returns, proceed directly to `docker compose up -d` and
+  the Postgres suite.
+- **Migrations:** Migration numbers are determined from `alembic heads` at
+  pickup time, never from plan documents.
+
 ## Repo layout
 ```
 backend/   FastAPI app, Celery workers, Alembic migrations, pytest
