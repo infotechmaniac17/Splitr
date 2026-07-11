@@ -9,12 +9,22 @@ Routers are registered here as milestones are built out.
 Windows note: psycopg (v3) requires the SelectorEventLoop; the policy is set
 at import time so that `asyncio.run(...)` calls inside tests and scripts also
 pick it up automatically.
+
+CAUTION: this policy does NOT protect a bare `uvicorn app.main:app` run on
+Windows. uvicorn >= 0.49 constructs its loop via a factory handed directly to
+`asyncio.run(loop_factory=...)`, which bypasses the policy entirely, and that
+factory returns ProactorEventLoop on win32 unless `--reload`/`--workers > 1`
+is in effect (those spawn a subprocess, which gets Selector). So:
+`--reload` works; a bare run crashes on the first DB call. For non-reload
+runs use `scripts/run_dev_server.py`, which forces a SelectorEventLoop.
 """
 
 import sys
 
 # psycopg3 does not support ProactorEventLoop (Windows default).
 # Force SelectorEventLoop on Windows before any async code runs.
+# (Covers tests/scripts; does NOT cover bare `uvicorn` — see module
+# docstring's CAUTION note.)
 if sys.platform == "win32":
     import asyncio
 

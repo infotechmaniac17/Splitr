@@ -32,6 +32,10 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000 .*LISTENING"') do (
 )
 
 echo === [3/4] Launching backend API (port 8000) ===
+REM --reload is LOAD-BEARING on Windows, not just convenience: it makes
+REM uvicorn serve from a subprocess, which gets a SelectorEventLoop (psycopg3
+REM cannot run on the ProactorEventLoop uvicorn otherwise picks on win32).
+REM A bare non-reload run must use backend\scripts\run_dev_server.py instead.
 start "Splitr Backend" cmd /k "cd /d %~dp0backend && .venv\Scripts\python -m uvicorn app.main:app --reload --port 8000"
 
 echo === [3/4] Launching Celery worker ===

@@ -27,6 +27,12 @@ source of truth for the schema, PDF pipeline, and splitting algorithm.**
   the Postgres suite.
 - **Migrations:** Migration numbers are determined from `alembic heads` at
   pickup time, never from plan documents.
+- **Windows uvicorn:** a bare `uvicorn app.main:app` CRASHES on Windows
+  (psycopg3 cannot use the ProactorEventLoop uvicorn >= 0.49 picks via its
+  loop factory, which bypasses the SelectorEventLoop policy set in
+  app/main.py). Always run with `--reload` (subprocess path gets a
+  SelectorEventLoop) or use `backend/scripts/run_dev_server.py` for
+  non-reload runs. See the CAUTION note in backend/app/main.py.
 
 ## Repo layout
 ```
