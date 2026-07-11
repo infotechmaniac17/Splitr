@@ -7,6 +7,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
@@ -14,7 +15,9 @@ from app.api.schemas import (
     GroupBalancesResponse,
     GroupCreate,
     GroupMemberAdd,
+    GroupMemberInfo,
     GroupMemberResponse,
+    GroupMembersResponse,
     GroupResponse,
     PairwiseBalance,
     SimplifiedDebtsResponse,
@@ -145,6 +148,44 @@ async def add_member(
     await db.commit()
     await db.refresh(member)
     return member
+
+
+@router.get("/{group_id}/members", response_model=GroupMembersResponse)
+async def list_group_members(
+    group_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> GroupMembersResponse:
+    """
+    Roster for this group (name/avatar only, matching UserPublicResponse's
+    slim projection -- never email/phone). Frontend previously had no way
+    to fetch this and fell back to a per-browser localStorage cache, which
+    silently went empty for any member added from another device/session.
+    """
+    group = await db.get(Group, group_id)
+    if group is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
+        )
+    await _assert_active_member(db, group_id, current_user.id)
+
+    result = await db.execute(
+        select(GroupMember, User)
+        .join(User, User.id == GroupMember.user_id)
+        .where(GroupMember.group_id == group_id, GroupMember.left_at.is_(None))
+        .order_by(GroupMember.joined_at)
+    )
+    members = [
+        GroupMemberInfo(
+            user_id=user.id,
+            name=user.name,
+            avatar_url=user.avatar_url,
+            role=member.role,
+            joined_at=member.joined_at,
+        )
+        for member, user in result.all()
+    ]
+    return GroupMembersResponse(group_id=group_id, members=members)
 
 
 @router.get("/{group_id}/balances", response_model=GroupBalancesResponse)

@@ -19,11 +19,36 @@ Worked example (ARCHITECTURE.md §4):
 
 from __future__ import annotations
 
+from decimal import ROUND_HALF_EVEN, Decimal
 from fractions import Fraction
 from math import trunc
 from typing import TypeVar
 
 K = TypeVar("K")
+
+
+def percent_of_minor(subtotal_minor: int, percent: Decimal) -> int:
+    """
+    Single-value (non-multi-way) rounding of `subtotal_minor * percent / 100`
+    to the nearest minor unit, using round-half-even.
+
+    This is deliberately NOT `allocate_largest_remainder`: that function
+    distributes a fixed total across several *parties* so the parts sum
+    exactly to the total. This helper instead rounds a single derived
+    amount (e.g. "18% of 12345 paise") with no such multi-way reconciliation
+    to satisfy. Round-half-even is the standard, deterministic tie-break for
+    this shape of computation (see app/domain/vendor_discount.py's original
+    docstring, which is where this convention was first established for
+    percent-based vendor discounts and now also backs percent-based
+    discount/GST math in app/domain/splitting.py). Extracted here so both
+    modules share exactly one rounding rule instead of two copies that could
+    silently drift apart.
+
+    Does not cap the result against `subtotal_minor` -- callers apply their
+    own caps (e.g. "a discount can never exceed the subtotal it discounts").
+    """
+    exact = Decimal(subtotal_minor) * percent / Decimal(100)
+    return int(exact.quantize(Decimal("1"), rounding=ROUND_HALF_EVEN))
 
 
 def allocate_largest_remainder(

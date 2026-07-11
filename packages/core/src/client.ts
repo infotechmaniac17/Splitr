@@ -33,6 +33,7 @@ import {
   type GroupCreate,
   type GroupMemberAdd,
   type GroupMemberResponse,
+  type GroupMembersResponse,
   type GroupResponse,
   type LineItemsCorrection,
   type LoginRequest,
@@ -52,6 +53,7 @@ import {
   expenseResponseSchema,
   groupBalancesResponseSchema,
   groupMemberResponseSchema,
+  groupMembersResponseSchema,
   groupResponseSchema,
   rawExtractionSchema,
   settlementResponseSchema,
@@ -106,7 +108,12 @@ export class SplitrApiClient {
 
   constructor(options: ApiClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    // Native fetch is spec'd to require its receiver to be a Window/
+    // WorkerGlobalScope; storing the bare function and later invoking it as
+    // `this.fetchImpl(...)` (a method call off this class instance) throws
+    // "Failed to execute 'fetch' on 'Window': Illegal invocation" in every
+    // real browser. Bind it to globalThis so it carries its own receiver.
+    this.fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
     this.getAccessToken = options.getAccessToken;
   }
 
@@ -205,6 +212,14 @@ export class SplitrApiClient {
       `/groups/${groupId}/members`,
       groupMemberResponseSchema,
       payload,
+    );
+  }
+
+  getGroupMembers(groupId: string): Promise<GroupMembersResponse> {
+    return this.request(
+      "GET",
+      `/groups/${groupId}/members`,
+      groupMembersResponseSchema,
     );
   }
 

@@ -49,7 +49,7 @@ if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
 
 from app.domain.pg_guards import (  # noqa: E402
-    ALL_TRIGGER_DDL,
+    LEDGER_AND_EXPENSE_TRIGGER_DDL,
 )
 
 
@@ -86,7 +86,7 @@ def upgrade() -> None:
     # H3: Append-only trigger on ledger_entries + financial-immutability
     #     trigger on expenses
     # ------------------------------------------------------------------
-    for ddl in ALL_TRIGGER_DDL:
+    for ddl in LEDGER_AND_EXPENSE_TRIGGER_DDL:
         op.execute(sa.text(ddl))
 
 

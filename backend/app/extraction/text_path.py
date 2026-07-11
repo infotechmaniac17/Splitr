@@ -25,6 +25,32 @@ class ExtractedContent(TypedDict):
     tables: list[str]
 
 
+# M6 item 4: shared GST/discount extraction instructions, injected into both
+# the text and vision prompts (see vision_path.py, which imports this same
+# constant so the two paths never drift on GST guidance).
+_GST_INSTRUCTIONS = (
+    "GST/tax structure: if the invoice shows GST/tax as one or more separate "
+    "named lines with a printed rate (e.g. 'CGST 9%', 'SGST 9%', 'IGST 18%', "
+    "'GST 5%', 'CESS 1%'), populate the `tax_components` array with one "
+    "entry per named component (name, rate as a percentage 0-100, and "
+    "amount_minor), in ADDITION to (not instead of) a kind='tax' line item "
+    "for the same amount. If the invoice states prices/total are 'inclusive "
+    "of GST' or 'GST included', set gst_mode='invoice_inclusive'. If GST is "
+    "shown as separate exclusive line(s)/component(s) added on top of the "
+    "subtotal, set gst_mode='invoice_exclusive'. If GST is shown per line "
+    "item at different rates (e.g. a restaurant bill with 5% on some dishes "
+    "and 18% on others), set gst_mode='item_level' and populate gst_rate + "
+    "gst_amount_minor on each affected line item instead of (or alongside) "
+    "the invoice-level tax_components. If there is no GST/tax signal at all, "
+    "leave gst_mode='none' and tax_components empty. "
+    "Discount: if the invoice prints a single coupon/promo/discount summary "
+    "line (amount or percent off), ALSO populate the `discount` object "
+    "(type='flat'|'percent', value_minor or percent, and threshold_minor if "
+    "a minimum order value is stated) in addition to the kind='discount' "
+    "line item."
+)
+
+
 def _open_pdf(pdf_source: PdfSource) -> Any:  # pdfplumber ships no type stubs
     if isinstance(pdf_source, (bytes, bytearray)):
         return pdfplumber.open(io.BytesIO(pdf_source))
@@ -66,6 +92,7 @@ def build_text_prompt(
         "expressed in INTEGER MINOR UNITS (paise) — e.g. Rs. 12.50 -> 1250. "
         "Never use floats. Discount and refund line totals must be negative; "
         "every other kind must be >= 0.",
+        _GST_INSTRUCTIONS,
     ]
     if vendor_hint:
         parts.append(f"Vendor hint: {vendor_hint}.")

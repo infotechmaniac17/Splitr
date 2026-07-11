@@ -21,7 +21,10 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.domain.models import (
+    DiscountType,  # noqa: TC001 — needed at runtime for pydantic
+    GstMode,  # noqa: TC001 — needed at runtime for pydantic
     LineItemKind,  # noqa: TC001 — needed at runtime for pydantic
+    TaxComponentName,  # noqa: TC001 — needed at runtime for pydantic
 )
 
 
@@ -35,6 +38,42 @@ class ExtractedLineItem(BaseModel):
     # Signed: negative for discount/refund kinds (validated downstream).
     unit_price_minor: int | None = None
     total_minor: int
+    # M6 item 4: only populated when the invoice shows a PER-LINE-ITEM GST
+    # rate (restaurant-style 5%/18% per dish) -- i.e. when the overall
+    # invoice's gst_mode ends up 'item_level'. NULL on every other line.
+    gst_rate: Decimal | None = Field(default=None, ge=0, le=100)
+    gst_amount_minor: int | None = Field(default=None, ge=0)
+
+
+class ExtractedTaxComponent(BaseModel):
+    """
+    M6 item 4: one named GST component (CGST/SGST/IGST/GST/CESS) with an
+    optional printed rate, extracted as STRUCTURED data alongside (not
+    instead of) any amount-based kind='tax' expense_line_items row that
+    covers the same tax. See app/domain/gst.py for how the two are cross-
+    checked against each other under gst_mode='item_level'.
+    """
+
+    name: TaxComponentName
+    rate: Decimal | None = Field(default=None, ge=0, le=100)
+    amount_minor: int = Field(ge=0)
+
+
+class ExtractedDiscount(BaseModel):
+    """
+    M6 item 4 (discount follow-up to item 3): a structured summary of a
+    single printed coupon/promo/discount line, extracted directly into the
+    same shape as expenses.discount_* (see app/domain/vendor_discount.py).
+    Populated only when the invoice text itself states a discount -- this
+    is independent of (and never overwrites) a 'manual' snapshot, and is
+    itself overwritten by a later-matched vendor rule -- see
+    app/extraction/tasks.py's persistence ordering.
+    """
+
+    type: DiscountType
+    value_minor: int | None = Field(default=None, gt=0)
+    percent: Decimal | None = Field(default=None, gt=0, le=100)
+    threshold_minor: int | None = Field(default=None, ge=0)
 
 
 class ExtractedInvoice(BaseModel):
@@ -49,6 +88,12 @@ class ExtractedInvoice(BaseModel):
     line_items: list[ExtractedLineItem] = Field(default_factory=list)
     invoice_total_minor: int
     subtotal_minor: int | None = None
+    # M6 item 4: GST structured data -- see GstMode and ExtractedTaxComponent.
+    gst_mode: GstMode = GstMode.none
+    tax_components: list[ExtractedTaxComponent] = Field(default_factory=list)
+    # M6 item 4 (discount follow-up): structured discount summary, if the
+    # invoice printed one. See ExtractedDiscount.
+    discount: ExtractedDiscount | None = None
 
 
 def extraction_json_schema() -> dict[str, Any]:

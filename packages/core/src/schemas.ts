@@ -134,6 +134,21 @@ export const groupMemberResponseSchema = z.object({
 });
 export type GroupMemberResponse = z.infer<typeof groupMemberResponseSchema>;
 
+export const groupMemberInfoSchema = z.object({
+  user_id: uuid,
+  name: z.string(),
+  avatar_url: z.string().nullable(),
+  role: z.nativeEnum(GroupMemberRole),
+  joined_at: z.string(),
+});
+export type GroupMemberInfo = z.infer<typeof groupMemberInfoSchema>;
+
+export const groupMembersResponseSchema = z.object({
+  group_id: uuid,
+  members: z.array(groupMemberInfoSchema),
+});
+export type GroupMembersResponse = z.infer<typeof groupMembersResponseSchema>;
+
 // ---------------------------------------------------------------------------
 // Line items
 // ---------------------------------------------------------------------------

@@ -60,12 +60,64 @@ class ExpenseSource(StrEnum):
     manual = "manual"
 
 
+class DiscountType(StrEnum):
+    flat = "flat"
+    percent = "percent"
+
+
+class DiscountSource(StrEnum):
+    manual = "manual"
+    vendor_rule = "vendor_rule"
+    extracted = "extracted"
+
+
 class ParseStatus(StrEnum):
     queued = "queued"
     parsed = "parsed"
     needs_review = "needs_review"
     confirmed = "confirmed"
     failed = "failed"
+
+
+class GstMode(StrEnum):
+    """
+    M6 item 4: how GST/tax is expressed on this expense's invoice.
+
+    none               -- no GST signal detected at all.
+    invoice_exclusive   -- GST is broken out as separate positive tax line(s)
+                            /components on top of the item/fee subtotal.
+    invoice_inclusive   -- invoice states prices/total already include GST
+                            ("inclusive of GST", "GST included").
+    item_level          -- per-line-item GST rates detected (restaurant-style
+                            5%/18% per dish), captured on
+                            expense_line_items.gst_rate/gst_amount_minor.
+    """
+
+    none = "none"
+    invoice_exclusive = "invoice_exclusive"
+    invoice_inclusive = "invoice_inclusive"
+    item_level = "item_level"
+
+
+class TaxComponentName(StrEnum):
+    """
+    M6 item 4: recognized Indian GST component names.
+
+    Member NAMES intentionally match their VALUES exactly (unlike most other
+    enums in this module, which use lowercase names) -- sa.Enum(...,
+    native_enum=False) stores a member's `.name`, not its `.value`, unless
+    `values_callable` is passed (see app.domain.models._enum). Every other
+    StrEnum here happens to have name == value.lower() with a lowercase DB
+    representation, so this was never an issue before; GST component codes
+    are conventionally uppercase (matching the CHECK constraint and the
+    Indian GST terminology itself), so the names are kept uppercase too.
+    """
+
+    CGST = "CGST"
+    SGST = "SGST"
+    IGST = "IGST"
+    GST = "GST"
+    CESS = "CESS"
 
 
 class ExpenseStatus(StrEnum):
@@ -227,12 +279,117 @@ class SubgroupMember(Base):
     subgroup: Mapped[Subgroup] = relationship("Subgroup", back_populates="members")
 
 
+class VendorDiscountRule(Base):
+    """
+    M6 item 3: a rule that auto-applies a known vendor promotion/discount
+    to draft expenses matching that vendor.
+
+    group_id NULL means a "creator-global" rule: usable across every group
+    the creator belongs to (see app/api/vendor_discount_rules.py), editable
+    only by created_by. group_id set means the rule is scoped to that one
+    group and editable by any admin of it.
+
+    vendor_pattern is stored PRE-NORMALIZED (via
+    app.extraction.vendor_detect.normalize_vendor_text, applied at write
+    time in the Pydantic schema / CRUD layer -- see
+    app/api/schemas.py:VendorDiscountRuleCreate) so
+    app.domain.vendor_discount.match_rule can compare it directly against
+    an already-normalized vendor string without re-normalizing stored data
+    on every read.
+
+    Never hard-deleted: expenses.discount_rule_id has a FK to this table
+    (ON DELETE SET NULL) for historical lineage, so "deleting" a rule is
+    always a soft delete (active=false) via the CRUD API.
+    """
+
+    __tablename__ = "vendor_discount_rules"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "min_order_total_minor >= 0", name="ck_vendor_rule_min_order_nonneg"
+        ),
+        sa.CheckConstraint(
+            "discount_type IN ('flat', 'percent')",
+            name="ck_vendor_rule_discount_type",
+        ),
+        sa.CheckConstraint(
+            "(discount_type = 'flat' AND discount_value_minor > 0 "
+            " AND discount_percent IS NULL)"
+            " OR "
+            "(discount_type = 'percent' AND discount_percent > 0 "
+            " AND discount_percent <= 100 AND discount_value_minor IS NULL)",
+            name="ck_vendor_rule_discount_value_shape",
+        ),
+        sa.Index(
+            "ix_vendor_discount_rules_group_active_pattern",
+            "group_id",
+            "active",
+            "vendor_pattern",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True), primary_key=True, default=_uuid4
+    )
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.ForeignKey("groups.id"), nullable=True
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        sa.ForeignKey("users.id"), nullable=False
+    )
+    # Pre-normalized (see class docstring) — .strip().lower() applied at
+    # write time via app.extraction.vendor_detect.normalize_vendor_text.
+    vendor_pattern: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    min_order_total_minor: Mapped[int] = mapped_column(
+        sa.BigInteger, nullable=False, default=0, server_default="0"
+    )
+    discount_type: Mapped[DiscountType] = mapped_column(
+        _enum(DiscountType, "vendor_rule_discount_type"), nullable=False
+    )
+    discount_value_minor: Mapped[int | None] = mapped_column(
+        sa.BigInteger, nullable=True
+    )
+    discount_percent: Mapped[Any] = mapped_column(
+        sa.Numeric(precision=5, scale=2), nullable=True
+    )
+    active: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=True, server_default=sa.true()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=_now_utc
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_now_utc,
+        onupdate=_now_utc,
+    )
+
+
 class Expense(Base):
     __tablename__ = "expenses"
     __table_args__ = (
         # M2/M3: DB-level guard — total_minor must be positive.
         # SQLite parses but does not enforce CHECK; Postgres enforces it.
         sa.CheckConstraint("total_minor > 0", name="ck_expense_total_positive"),
+        # M6 item 3: discount_type, if set, must be one of the two supported
+        # kinds. SQLite parses but does not enforce; Postgres does.
+        sa.CheckConstraint(
+            "discount_type IS NULL OR discount_type IN ('flat', 'percent')",
+            name="ck_expense_discount_type",
+        ),
+        sa.CheckConstraint(
+            "discount_source IS NULL OR discount_source IN "
+            "('manual', 'vendor_rule', 'extracted')",
+            name="ck_expense_discount_source",
+        ),
+        # M6 item 4: gst_mode is NOT NULL (unlike discount_type/source, which
+        # are NULL until a discount is known) -- every expense has SOME GST
+        # mode, even if it's the neutral 'none'.
+        sa.CheckConstraint(
+            "gst_mode IN ('none', 'invoice_exclusive', 'invoice_inclusive', "
+            "'item_level')",
+            name="ck_expense_gst_mode",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -280,6 +437,104 @@ class Expense(Base):
         sa.DateTime(timezone=True), nullable=True
     )
 
+    # -----------------------------------------------------------------
+    # M6 item 3: vendor discount rules — SNAPSHOT columns.
+    #
+    # These are frozen at the moment a discount is applied (manually, by a
+    # matched vendor rule, or extracted from the PDF's own line items) and
+    # are NEVER re-derived from vendor_discount_rules later. If the rule
+    # that produced discount_rule_id is subsequently edited, deactivated,
+    # or (never actually) deleted, this expense's discount_* values do NOT
+    # change -- they are historical fact, exactly like item_assignments.
+    # share_minor is frozen at confirmation. See app/domain/vendor_discount.
+    # py for the matching logic that populates these at application time.
+    # -----------------------------------------------------------------
+    discount_type: Mapped[DiscountType | None] = mapped_column(
+        _enum(DiscountType, "expense_discount_type"),
+        nullable=True,
+        comment=(
+            "Snapshot of the applied discount's type at the time it was "
+            "applied. Never re-derived from vendor_discount_rules later."
+        ),
+    )
+    discount_value_minor: Mapped[int | None] = mapped_column(
+        sa.BigInteger,
+        nullable=True,
+        comment="Snapshot: flat discount amount in minor units, if discount_type='flat'.",
+    )
+    discount_percent: Mapped[Any] = mapped_column(
+        sa.Numeric(precision=5, scale=2),
+        nullable=True,
+        comment="Snapshot: percent discount (0-100], if discount_type='percent'.",
+    )
+    discount_threshold_minor: Mapped[int | None] = mapped_column(
+        sa.BigInteger,
+        nullable=True,
+        comment=(
+            "Snapshot of the vendor rule's min_order_total_minor at "
+            "application time, for audit/display only -- not re-checked."
+        ),
+    )
+    discount_source: Mapped[DiscountSource | None] = mapped_column(
+        _enum(DiscountSource, "expense_discount_source"),
+        nullable=True,
+        comment=(
+            "Where this discount snapshot came from: 'manual' (user-entered, "
+            "never auto-overwritten), 'vendor_rule' (matched by "
+            "app.domain.vendor_discount.match_rule), or 'extracted' (summed "
+            "from kind='discount' line items by the PDF pipeline)."
+        ),
+    )
+    discount_rule_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.ForeignKey("vendor_discount_rules.id", ondelete="SET NULL"),
+        nullable=True,
+        comment=(
+            "The vendor_discount_rules row that produced this snapshot, if "
+            "discount_source='vendor_rule'. Informational lineage only -- "
+            "the discount_* values above are never re-read from this rule."
+        ),
+    )
+
+    # -----------------------------------------------------------------
+    # M6 item 4: GST structured data.
+    #
+    # gst_mode records how the invoice expressed tax (see GstMode). Like
+    # discount_type/discount_source above, this is written ONLY inside the
+    # original_status-confirmed guard in app/extraction/tasks.py
+    # (_persist_pipeline_result) or at manual-expense creation time, and is
+    # frozen once confirmed (see pg_guards.EXPENSE_STATE_MACHINE_GUARD_
+    # FUNCTION_DDL_V4).
+    #
+    # needs_review is a SEPARATE signal from parse_status='needs_review':
+    # it is set when the GST-specific arithmetic invariants (app/domain/
+    # gst.py) don't reconcile, even though the BASE arithmetic invariants
+    # (app/extraction/validation.py:validate_extraction) already passed and
+    # parse_status is 'parsed'. Kept deliberately independent of the
+    # parse_status state machine (see app/extraction/tasks.py for the full
+    # rationale) so GST-only inconsistencies don't have to be retrofitted
+    # into that enum's already-exhaustively-enumerated legal transition
+    # graph. POST /expenses/{id}/confirm rejects confirmation while this is
+    # true (see app/api/expenses.py).
+    # -----------------------------------------------------------------
+    gst_mode: Mapped[GstMode] = mapped_column(
+        _enum(GstMode, "expense_gst_mode"),
+        nullable=False,
+        default=GstMode.none,
+        server_default="none",
+        comment="How this invoice expresses GST -- see GstMode.",
+    )
+    needs_review: Mapped[bool] = mapped_column(
+        sa.Boolean,
+        nullable=False,
+        default=False,
+        server_default=sa.false(),
+        comment=(
+            "Set when GST-specific arithmetic invariants (app/domain/gst.py) "
+            "fail to reconcile, independent of parse_status. Confirmation is "
+            "blocked while this is true."
+        ),
+    )
+
     # Relationships
     group: Mapped[Group | None] = relationship("Group", back_populates="expenses")
     paid_by_user: Mapped[User] = relationship(
@@ -291,6 +546,16 @@ class Expense(Base):
         cascade="all, delete-orphan",
         order_by="ExpenseLineItem.line_no",
     )
+    tax_components: Mapped[list[ExpenseTaxComponent]] = relationship(
+        "ExpenseTaxComponent",
+        back_populates="expense",
+        cascade="all, delete-orphan",
+    )
+    member_allocations: Mapped[list[ExpenseMemberAllocation]] = relationship(
+        "ExpenseMemberAllocation",
+        back_populates="expense",
+        cascade="all, delete-orphan",
+    )
 
 
 class ExpenseLineItem(Base):
@@ -300,6 +565,18 @@ class ExpenseLineItem(Base):
         # exempt from uniqueness on both SQLite and Postgres.
         sa.UniqueConstraint(
             "expense_id", "idempotency_key", name="uq_line_item_idempotency_key"
+        ),
+        # M6 item 4: per-item GST rate/amount, only meaningful when
+        # expense.gst_mode == 'item_level'. NULL on every other line (fees,
+        # tax-kind lines, discounts, refunds, and item lines on invoices
+        # that aren't item_level).
+        sa.CheckConstraint(
+            "gst_rate IS NULL OR (gst_rate >= 0 AND gst_rate <= 100)",
+            name="ck_line_item_gst_rate_range",
+        ),
+        sa.CheckConstraint(
+            "gst_amount_minor IS NULL OR gst_amount_minor >= 0",
+            name="ck_line_item_gst_amount_nonneg",
         ),
     )
 
@@ -335,6 +612,19 @@ class ExpenseLineItem(Base):
     # the client supplies a key; guards against duplicate posting on retry.
     idempotency_key: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
+    # M6 item 4: per-item GST detail (see __table_args__ CHECKs above and
+    # GstMode.item_level). No DB-level immutability trigger is attached to
+    # these two columns specifically -- see migration 0010's docstring for
+    # why (expense_line_items as a whole has never had a confirm-guard
+    # trigger, because refund lines legitimately get INSERTed onto an
+    # already-confirmed expense; these GST columns are protected purely at
+    # the application layer, by the same original_status guard in
+    # app/extraction/tasks.py that protects every other line-item write).
+    gst_rate: Mapped[Any] = mapped_column(
+        sa.Numeric(precision=5, scale=2), nullable=True
+    )
+    gst_amount_minor: Mapped[int | None] = mapped_column(sa.BigInteger, nullable=True)
+
     # Relationships
     expense: Mapped[Expense] = relationship("Expense", back_populates="line_items")
     assignments: Mapped[list[ItemAssignment]] = relationship(
@@ -367,6 +657,123 @@ class ItemAssignment(Base):
     # Relationships
     line_item: Mapped[ExpenseLineItem] = relationship(
         "ExpenseLineItem", back_populates="assignments"
+    )
+
+
+class ExpenseTaxComponent(Base):
+    """
+    M6 item 4: one named GST/tax component (CGST/SGST/IGST/GST/CESS) on an
+    expense -- e.g. a Rs.1000 order with 9% CGST + 9% SGST produces two rows
+    here (each amount_minor=9000... in paise, i.e. 90*100), rather than a
+    single opaque kind='tax' expense_line_items row. Extends, does not
+    replace, that pre-existing line-item mechanism (see
+    app/extraction/tasks.py and app/domain/gst.py for how the two interact).
+
+    UNIQUE(expense_id, name): at most one row per named component per
+    expense -- CGST and SGST can coexist, but you cannot have two CGST rows
+    (a second printed CGST line means the extractor should have summed them
+    into one component, not created a duplicate).
+
+    Immutable once the parent expense is confirmed, via the generic
+    reject_mutation_if_expense_confirmed('expense_id', 'direct') trigger
+    (migration 0010) -- see that migration's docstring for why this table
+    (unlike expense_line_items) is safe to attach the generic direct-FK
+    guard to unmodified: nothing besides the guarded pipeline-persistence
+    path ever writes to this table, so there is no refund-style append
+    pattern to carve an escape hatch for.
+    """
+
+    __tablename__ = "expense_tax_components"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "name IN ('CGST', 'SGST', 'IGST', 'GST', 'CESS')",
+            name="ck_tax_component_name",
+        ),
+        sa.CheckConstraint(
+            "rate IS NULL OR (rate >= 0 AND rate <= 100)",
+            name="ck_tax_component_rate_range",
+        ),
+        sa.CheckConstraint("amount_minor >= 0", name="ck_tax_component_amount_nonneg"),
+        sa.UniqueConstraint("expense_id", "name", name="uq_tax_component_expense_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True), primary_key=True, default=_uuid4
+    )
+    expense_id: Mapped[uuid.UUID] = mapped_column(
+        sa.ForeignKey("expenses.id"), nullable=False
+    )
+    name: Mapped[TaxComponentName] = mapped_column(
+        _enum(TaxComponentName, "tax_component_name"), nullable=False
+    )
+    rate: Mapped[Any] = mapped_column(sa.Numeric(precision=5, scale=2), nullable=True)
+    amount_minor: Mapped[int] = mapped_column(sa.BigInteger, nullable=False)
+
+    # Relationships
+    expense: Mapped[Expense] = relationship("Expense", back_populates="tax_components")
+
+
+class ExpenseMemberAllocation(Base):
+    """
+    M6 item 5: one row per (expense, member) recording the FINAL discount +
+    GST breakdown produced by app.domain.splitting.compute_allocation at
+    confirmation time -- an audit/read-model summary table, not itself the
+    source of truth for money (the ledger_entries posted in the SAME
+    confirm transaction are that source of truth; see
+    app/api/expenses.py:confirm_expense, where `shares` fed to
+    post_expense_to_ledger are these same breakdowns' total_minor values).
+
+    Written ONLY inside the confirm transaction, after parse_status has
+    already flipped to 'confirmed' -- covered by
+    reject_mutation_if_expense_confirmed()'s existing same-transaction
+    (xmin) escape hatch (migration 0006), the exact same mechanism that
+    already lets confirm_expense freeze item_assignments.share_minor in the
+    same transaction. No new guard function/version needed: this is a plain
+    child table with a DIRECT expense_id FK, exactly what the generic
+    function already handles (see MEMBER_ALLOCATION_CONFIRM_GUARD_TRIGGER_
+    DDL in app/domain/pg_guards.py, modeled on migration 0010's
+    TAX_COMPONENT_CONFIRM_GUARD_TRIGGER_DDL).
+
+    No backfill for historical confirmed expenses (pre-item-5): a legacy
+    confirmed expense's allocation can be trivially synthesized at READ time
+    as base-only (base_minor=frozen share_minor, discount_minor=0,
+    gst_minor=0, total_minor=share_minor) -- see
+    GET /expenses/{id}/allocation-preview, which does exactly this minimal
+    synthesis rather than a real backfill migration.
+    """
+
+    __tablename__ = "expense_member_allocations"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "discount_minor <= 0", name="ck_member_alloc_discount_nonpos"
+        ),
+        sa.CheckConstraint("gst_minor >= 0", name="ck_member_alloc_gst_nonneg"),
+        sa.CheckConstraint(
+            "total_minor = base_minor + discount_minor + gst_minor",
+            name="ck_member_alloc_total_reconciles",
+        ),
+        sa.UniqueConstraint(
+            "expense_id", "user_id", name="uq_member_allocation_expense_user"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True), primary_key=True, default=_uuid4
+    )
+    expense_id: Mapped[uuid.UUID] = mapped_column(
+        sa.ForeignKey("expenses.id"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.ForeignKey("users.id"), nullable=False
+    )
+    base_minor: Mapped[int] = mapped_column(sa.BigInteger, nullable=False)
+    discount_minor: Mapped[int] = mapped_column(sa.BigInteger, nullable=False)
+    gst_minor: Mapped[int] = mapped_column(sa.BigInteger, nullable=False)
+    total_minor: Mapped[int] = mapped_column(sa.BigInteger, nullable=False)
+
+    # Relationships
+    expense: Mapped[Expense] = relationship(
+        "Expense", back_populates="member_allocations"
     )
 
 

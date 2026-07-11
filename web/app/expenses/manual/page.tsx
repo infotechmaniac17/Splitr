@@ -7,7 +7,7 @@ import { IdentityGate } from "@/components/IdentityGate";
 import { Avatar } from "@/components/Avatar";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { listGroupMembers, rememberExpense, type RememberedMember } from "@/lib/local-store";
+import { rememberExpense, type RememberedMember } from "@/lib/local-store";
 
 /**
  * Quick Manual Entry fallback (ARCHITECTURE.md §3 edge-case table): total-
@@ -30,9 +30,17 @@ function ManualEntryContent() {
   useEffect(() => {
     if (!user) return;
     if (groupId) {
-      const m = listGroupMembers(groupId);
-      setMembers(m);
-      setSelected(new Set(m.map((x) => x.id)));
+      api
+        .getGroupMembers(groupId)
+        .then((res) => {
+          const m = res.members.map((x) => ({ id: x.user_id, name: x.name }));
+          setMembers(m);
+          setSelected(new Set(m.map((x) => x.id)));
+        })
+        .catch(() => {
+          setMembers([]);
+          setSelected(new Set());
+        });
     } else {
       setMembers([{ id: user.id, name: user.name }]);
       setSelected(new Set([user.id]));

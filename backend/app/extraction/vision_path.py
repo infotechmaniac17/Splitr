@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import pypdfium2 as pdfium
 
+from app.extraction.text_path import _GST_INSTRUCTIONS
 from app.extraction.vendor_detect import build_few_shot_block
 
 if TYPE_CHECKING:
@@ -77,6 +78,7 @@ def build_vision_prompt(
         "provided out-of-band. All money amounts MUST be expressed in "
         "INTEGER MINOR UNITS (paise). Never use floats. Discount and refund "
         "line totals must be negative; every other kind must be >= 0.",
+        _GST_INSTRUCTIONS,
     ]
     if vendor_hint:
         parts.append(f"Vendor hint: {vendor_hint}.")
