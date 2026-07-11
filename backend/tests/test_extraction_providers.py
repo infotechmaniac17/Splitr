@@ -73,8 +73,15 @@ async def test_openai_provider_degrades_without_sdk_even_with_key() -> None:
     assert result.error is not None
 
 
-def test_get_default_provider_falls_back_to_null_when_no_keys_set() -> None:
-    # app.config.settings picks up the real (empty) env in this environment.
+def test_get_default_provider_falls_back_to_null_when_no_keys_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Force empty keys regardless of ambient env / local .env: this test is
+    # about the no-keys degrade path, not about what this machine has set.
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "")
     provider = get_default_provider()
     assert isinstance(provider, NullProvider)
     assert provider.is_configured() is False
